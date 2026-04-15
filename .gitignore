@@ -37,6 +37,7 @@ Thumbs.db
 # Build artifacts
 /brain
 /bin/
+/dist/
 /cmd/brain/brain
 *.exe
 *.test
