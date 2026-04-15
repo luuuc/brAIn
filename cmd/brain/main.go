@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
+	"os"
 
-	"github.com/luuuc/brain/internal/version"
+	"github.com/luuuc/brain/internal/cmd"
 )
 
 func main() {
-	fmt.Printf("brain %s\n", version.Version)
+	os.Exit(cmd.Execute())
 }

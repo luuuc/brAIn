@@ -16,7 +16,7 @@ type RecallOptions struct {
 	Domain         string            // filter to a specific domain (empty = all)
 	Query          string            // substring/keyword match against titles and tags
 	Layer          *memory.Layer     // filter to a specific layer (nil = all)
-	Limit          int               // max results; 0 means use default (5)
+	Limit          int               // max results; 0 means no limit
 	IncludeRetired bool              // include retired lessons (default false)
 
 	// Placeholder for pitch 01-06 effectiveness-adjusted ranking.
@@ -25,8 +25,9 @@ type RecallOptions struct {
 
 // RememberResult is the return value of Remember.
 type RememberResult struct {
-	Path     string   // storage path of the written memory
-	Warnings []string // non-fatal issues (e.g., superseded target not found)
+	Path     string       // storage path of the written memory
+	Layer    memory.Layer // layer (may have been auto-classified)
+	Warnings []string     // non-fatal issues (e.g., superseded target not found)
 }
 
 // Engine sits between the storage adapter and the interfaces (CLI/MCP).
@@ -72,12 +73,12 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 
 	// 3. If supersedes is set, retire the target.
 	if m.Supersedes != "" {
-		if err := e.retire(ctx, m.Supersedes); err != nil {
+		if err := e.retire(ctx, m.Supersedes, "superseded"); err != nil {
 			warnings = append(warnings, fmt.Sprintf("could not retire superseded memory %q: %v", m.Supersedes, err))
 		}
 	}
 
-	return RememberResult{Path: path, Warnings: warnings}, nil
+	return RememberResult{Path: path, Layer: m.Layer, Warnings: warnings}, nil
 }
 
 // Recall returns memories matching the given options, ranked by authority
@@ -102,15 +103,10 @@ func (e *Engine) Recall(ctx context.Context, opts RecallOptions) ([]memory.Memor
 		all = filterByQuery(all, opts.Query)
 	}
 
-	// Rank.
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = 5
-	}
-
+	// Rank. Limit <= 0 means no limit (return all).
 	ranked := Rank(all, RankOptions{
 		Now:                 e.now(),
-		Limit:               limit,
+		Limit:               opts.Limit,
 		IncludeRetired:      opts.IncludeRetired,
 		EffectivenessScores: opts.EffectivenessScores,
 	})
@@ -119,17 +115,19 @@ func (e *Engine) Recall(ctx context.Context, opts RecallOptions) ([]memory.Memor
 }
 
 // Forget marks a memory as retired without deleting the file.
-func (e *Engine) Forget(ctx context.Context, path string) error {
-	return e.retire(ctx, path)
+// An optional reason is stored in the memory's RetiredReason field.
+func (e *Engine) Forget(ctx context.Context, path, reason string) error {
+	return e.retire(ctx, path, reason)
 }
 
 // retire reads a memory, sets Retired=true, and writes it back.
-func (e *Engine) retire(ctx context.Context, path string) error {
+func (e *Engine) retire(ctx context.Context, path, reason string) error {
 	m, err := e.store.Read(ctx, path)
 	if err != nil {
 		return fmt.Errorf("retire %q: %w", path, err)
 	}
 	m.Retired = true
+	m.RetiredReason = reason
 	now := e.now()
 	m.Updated = &now
 	if _, err := e.store.Write(ctx, m); err != nil {

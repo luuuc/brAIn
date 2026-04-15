@@ -169,7 +169,7 @@ func TestRecall_LayerFiltering(t *testing.T) {
 	}
 }
 
-func TestRecall_DefaultLimit(t *testing.T) {
+func TestRecall_ZeroLimitReturnsAll(t *testing.T) {
 	e, ctx := setup(t)
 	now := time.Now()
 
@@ -181,8 +181,25 @@ func TestRecall_DefaultLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
+	if len(results) != 10 {
+		t.Fatalf("zero limit: got %d results, want 10 (all)", len(results))
+	}
+}
+
+func TestRecall_ExplicitLimit(t *testing.T) {
+	e, ctx := setup(t)
+	now := time.Now()
+
+	for i := 0; i < 10; i++ {
+		mustRemember(t, e, ctx, memory.Memory{Layer: memory.LayerFact, Domain: "db", Created: now.Add(time.Duration(i) * time.Second), Body: "# Fact"})
+	}
+
+	results, err := e.Recall(ctx, engine.RecallOptions{Limit: 5})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
 	if len(results) != 5 {
-		t.Fatalf("default limit: got %d results, want 5", len(results))
+		t.Fatalf("explicit limit 5: got %d results, want 5", len(results))
 	}
 }
 
@@ -362,7 +379,7 @@ func TestForget(t *testing.T) {
 	})
 
 	// Forget it.
-	if err := e.Forget(ctx, path); err != nil {
+	if err := e.Forget(ctx, path, "no longer relevant"); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
 
@@ -383,12 +400,15 @@ func TestForget(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1 with IncludeRetired", len(results))
 	}
+	if results[0].RetiredReason != "no longer relevant" {
+		t.Errorf("RetiredReason = %q, want %q", results[0].RetiredReason, "no longer relevant")
+	}
 }
 
 func TestForget_NonexistentPath(t *testing.T) {
 	e, ctx := setup(t)
 
-	err := e.Forget(ctx, "lessons/nonexistent.md")
+	err := e.Forget(ctx, "lessons/nonexistent.md", "")
 	if err == nil {
 		t.Fatal("expected error for nonexistent path")
 	}
