@@ -32,7 +32,7 @@ func recallCmd() *cobra.Command {
 
 			if layer != "" {
 				l := memory.Layer(layer)
-				if !validLayer(l) {
+				if !l.Valid() {
 					return &ExitError{Code: 3, Err: fmt.Errorf("invalid layer %q (valid: fact, lesson, decision, effectiveness, correction)", layer)}
 				}
 				opts.Layer = &l
