@@ -25,8 +25,9 @@ type RecallOptions struct {
 
 // RememberResult is the return value of Remember.
 type RememberResult struct {
-	Path     string   // storage path of the written memory
-	Warnings []string // non-fatal issues (e.g., superseded target not found)
+	Path     string       // storage path of the written memory
+	Layer    memory.Layer // layer (may have been auto-classified)
+	Warnings []string     // non-fatal issues (e.g., superseded target not found)
 }
 
 // Engine sits between the storage adapter and the interfaces (CLI/MCP).
@@ -77,7 +78,7 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 		}
 	}
 
-	return RememberResult{Path: path, Warnings: warnings}, nil
+	return RememberResult{Path: path, Layer: m.Layer, Warnings: warnings}, nil
 }
 
 // Recall returns memories matching the given options, ranked by authority

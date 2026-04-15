@@ -60,7 +60,7 @@ func rememberCmd() *cobra.Command {
 
 			jr := RememberResult{
 				Path:     result.Path,
-				Layer:    string(m.Layer),
+				Layer:    string(result.Layer),
 				Domain:   m.Domain,
 				Warnings: result.Warnings,
 			}
