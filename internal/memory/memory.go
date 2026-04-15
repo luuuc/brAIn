@@ -13,6 +13,16 @@ const (
 	LayerCorrection    Layer = "correction"
 )
 
+// Valid reports whether l is a known memory layer.
+func (l Layer) Valid() bool {
+	switch l {
+	case LayerFact, LayerLesson, LayerDecision,
+		LayerEffectiveness, LayerCorrection:
+		return true
+	}
+	return false
+}
+
 // Source identifies who created a memory.
 type Source string
 

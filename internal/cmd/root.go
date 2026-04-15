@@ -160,6 +160,7 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(recallCmd())
 	root.AddCommand(listCmd())
 	root.AddCommand(forgetCmd())
+	root.AddCommand(mcpCmd())
 }
 
 // ExitError wraps an error with an exit code.

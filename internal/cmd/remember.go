@@ -46,7 +46,7 @@ func rememberCmd() *cobra.Command {
 
 			if layer != "" {
 				l := memory.Layer(layer)
-				if !validLayer(l) {
+				if !l.Valid() {
 					return &ExitError{Code: 3, Err: fmt.Errorf("invalid layer %q (valid: fact, lesson, decision, effectiveness, correction)", layer)}
 				}
 				m.Layer = l
@@ -104,11 +104,3 @@ func resolveContent(args []string, stdin io.Reader) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func validLayer(l memory.Layer) bool {
-	switch l {
-	case memory.LayerFact, memory.LayerLesson, memory.LayerDecision,
-		memory.LayerEffectiveness, memory.LayerCorrection:
-		return true
-	}
-	return false
-}

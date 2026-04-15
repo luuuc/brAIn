@@ -57,9 +57,13 @@ func runWithStdin(t *testing.T, brainDir string, stdin io.Reader, args ...string
 		}
 	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing pipe writer: %v", err)
+	}
 	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("reading pipe: %v", err)
+	}
 	os.Stdout = old
 
 	return exitCode, buf.String()
