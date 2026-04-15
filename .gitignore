@@ -1,0 +1,70 @@
+# ----------------------------------------------------------------------------
+# Private workspace
+# ----------------------------------------------------------------------------
+# Design docs, pitches, and decisions live outside the public repo.
+.doc/
+doc/
+
+# AI assistant workspace (kept local, never pushed)
+.claude/
+CLAUDE.md
+.claude.json
+.opencode/
+.cursor/
+.cursorrules
+.cursorignore
+.codex/
+.aider*
+.continue/
+.windsurf/
+AGENTS.md
+
+# ----------------------------------------------------------------------------
+# Editor / IDE
+# ----------------------------------------------------------------------------
+.vscode/
+.idea/
+.ruby-lsp/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----------------------------------------------------------------------------
+# Go
+# ----------------------------------------------------------------------------
+# Build artifacts
+/brain
+/bin/
+/cmd/brain/brain
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# ----------------------------------------------------------------------------
+# Local config, secrets, runtime data
+# ----------------------------------------------------------------------------
+*.env
+.env
+.env.*
+!.env.example
+brain.yml
+/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.log
+.env.local
+
+# ----------------------------------------------------------------------------
+# Test fixtures
+# ----------------------------------------------------------------------------
+/testdata/.brain/
