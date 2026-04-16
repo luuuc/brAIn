@@ -88,17 +88,19 @@ type Server struct {
 	reader      io.Reader
 	writer      io.Writer
 	eng         Engine
+	trust       TrustEngine
 	now         func() time.Time // clock function; defaults to time.Now
 	initialized bool
 	writeErr    error // sticky error from writeResponse; checked each loop iteration
 }
 
-// NewServer creates an MCP server backed by the given engine.
-func NewServer(r io.Reader, w io.Writer, eng Engine) *Server {
+// NewServer creates an MCP server backed by the given engines.
+func NewServer(r io.Reader, w io.Writer, eng Engine, trust TrustEngine) *Server {
 	return &Server{
 		reader: r,
 		writer: w,
 		eng:    eng,
+		trust:  trust,
 		now:    time.Now,
 	}
 }

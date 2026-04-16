@@ -117,6 +117,80 @@ var brainTools = []toolDefinition{
 			Required: []string{"path"},
 		},
 	},
+	// Note: `brain trust repair` is intentionally NOT exposed as an MCP
+	// tool. Repair is an operator recovery action — any AI workflow
+	// hitting a trust-state error should escalate to a human rather than
+	// auto-repair. See .doc/definition/06-mcp-and-cli.md (CLI-only table)
+	// for the full rationale.
+	{
+		Name:        "brain_trust",
+		Description: "Check the trust level for a domain. Returns level (ask/notify/auto_ship/full_auto) and a recommendation (escalate/ship_notify/ship). Urgency=hotfix raises the floor to ship_notify.",
+		InputSchema: toolSchema{
+			Type: "object",
+			Properties: map[string]schemaProperty{
+				"domain": {
+					Type:        "string",
+					Description: "The trust domain to check (e.g. \"database\").",
+				},
+				"urgency": {
+					Type:        "string",
+					Description: "Optional urgency override.",
+					Enum:        []string{"hotfix"},
+				},
+				"verbose": {
+					Type:        "boolean",
+					Description: "Include the domain's event history.",
+					Default:     false,
+				},
+			},
+			Required: []string{"domain"},
+		},
+	},
+	{
+		Name:        "brain_trust_record",
+		Description: "Record an outcome for a trust domain. A clean outcome may promote; a failure immediately demotes the domain to ask. Duplicate refs are deduplicated.",
+		InputSchema: toolSchema{
+			Type: "object",
+			Properties: map[string]schemaProperty{
+				"domain": {
+					Type:        "string",
+					Description: "The trust domain.",
+				},
+				"outcome": {
+					Type:        "string",
+					Description: "clean or failure.",
+					Enum:        []string{"clean", "failure"},
+				},
+				"ref": {
+					Type:        "string",
+					Description: "Optional reference (e.g. \"PR #42\") — used to deduplicate repeated reports.",
+				},
+				"reason": {
+					Type:        "string",
+					Description: "Optional reason (typically used on failures).",
+				},
+			},
+			Required: []string{"domain", "outcome"},
+		},
+	},
+	{
+		Name:        "brain_trust_override",
+		Description: "Record a human override for a trust domain. Writes a correction memory and appends an override event to the domain's history. Does not change trust level.",
+		InputSchema: toolSchema{
+			Type: "object",
+			Properties: map[string]schemaProperty{
+				"domain": {
+					Type:        "string",
+					Description: "The trust domain.",
+				},
+				"reason": {
+					Type:        "string",
+					Description: "Why the human overrode.",
+				},
+			},
+			Required: []string{"domain", "reason"},
+		},
+	},
 }
 
 func (s *Server) handleToolsList(req *jsonrpcRequest) {

@@ -29,6 +29,12 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonrpcRequest) {
 		result = s.handleList(ctx, params.Arguments)
 	case "brain_forget":
 		result = s.handleForget(ctx, params.Arguments)
+	case "brain_trust":
+		result = s.handleTrust(ctx, params.Arguments)
+	case "brain_trust_record":
+		result = s.handleTrustRecord(ctx, params.Arguments)
+	case "brain_trust_override":
+		result = s.handleTrustOverride(ctx, params.Arguments)
 	default:
 		s.sendError(req.ID, errCodeInvalidParams, "unknown tool", params.Name)
 		return
