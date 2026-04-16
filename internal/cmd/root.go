@@ -12,14 +12,17 @@ import (
 
 	"github.com/luuuc/brain/internal/engine"
 	"github.com/luuuc/brain/internal/markdown"
+	"github.com/luuuc/brain/internal/trust"
 	"github.com/luuuc/brain/internal/version"
 )
 
 type contextKey string
 
 const (
-	engineKey contextKey = "engine"
-	jsonKey   contextKey = "json"
+	engineKey      contextKey = "engine"
+	jsonKey        contextKey = "json"
+	trustEngineKey contextKey = "trust"
+	brainDirKey    contextKey = "brain_dir"
 )
 
 func rootCmd() *cobra.Command {
@@ -42,9 +45,16 @@ func rootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			trustDir := filepath.Join(brainDir, "trust")
+			teng, err := trust.NewEngine(cmd.Context(), trustDir, s, trust.WithLockTimeoutFromEnv())
+			if err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 			ctx = context.WithValue(ctx, engineKey, eng)
+			ctx = context.WithValue(ctx, trustEngineKey, teng)
 			ctx = context.WithValue(ctx, jsonKey, jsonFlag)
+			ctx = context.WithValue(ctx, brainDirKey, brainDir)
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -77,6 +87,12 @@ func Execute() int {
 // Returns nil if the engine was not set (e.g. --help or --version).
 func engineFrom(cmd *cobra.Command) *engine.Engine {
 	v, _ := cmd.Context().Value(engineKey).(*engine.Engine)
+	return v
+}
+
+// trustEngineFrom extracts the trust engine from the command's context.
+func trustEngineFrom(cmd *cobra.Command) *trust.Engine {
+	v, _ := cmd.Context().Value(trustEngineKey).(*trust.Engine)
 	return v
 }
 
@@ -161,6 +177,7 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(listCmd())
 	root.AddCommand(forgetCmd())
 	root.AddCommand(mcpCmd())
+	root.AddCommand(trustCmd())
 }
 
 // ExitError wraps an error with an exit code.

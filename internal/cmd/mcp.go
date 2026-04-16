@@ -23,7 +23,8 @@ func mcpCmd() *cobra.Command {
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 			eng := engineFrom(cmd)
-			srv := mcp.NewServer(os.Stdin, os.Stdout, eng)
+			teng := trustEngineFrom(cmd)
+			srv := mcp.NewServer(os.Stdin, os.Stdout, eng, teng)
 			return srv.Run(ctx)
 		},
 	}

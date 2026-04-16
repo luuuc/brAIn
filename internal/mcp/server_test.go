@@ -11,6 +11,7 @@ import (
 
 	"github.com/luuuc/brain/internal/engine"
 	"github.com/luuuc/brain/internal/memory"
+	"github.com/luuuc/brain/internal/trust"
 )
 
 // stubEngine is a minimal Engine implementation for protocol-level tests.
@@ -19,6 +20,43 @@ type stubEngine struct {
 	rememberFn func(context.Context, memory.Memory) (engine.RememberResult, error)
 	recallFn   func(context.Context, engine.RecallOptions) ([]memory.Memory, error)
 	forgetFn   func(context.Context, string, string) error
+}
+
+// stubTrust is a minimal TrustEngine. Protocol tests rarely exercise trust
+// tools, so defaults are fine; handler tests substitute their own closures.
+type stubTrust struct {
+	checkFn    func(context.Context, string, trust.CheckOptions) (trust.Decision, error)
+	recordFn   func(context.Context, string, trust.Outcome, trust.RecordOptions) (trust.RecordResult, error)
+	overrideFn func(context.Context, string, string) (trust.Decision, error)
+	listFn     func(context.Context) ([]trust.Decision, error)
+}
+
+func (s *stubTrust) Check(ctx context.Context, d string, opts trust.CheckOptions) (trust.Decision, error) {
+	if s.checkFn != nil {
+		return s.checkFn(ctx, d, opts)
+	}
+	return trust.Decision{Domain: d, Level: trust.LevelAsk, Recommendation: trust.RecommendationEscalate}, nil
+}
+
+func (s *stubTrust) Record(ctx context.Context, d string, o trust.Outcome, opts trust.RecordOptions) (trust.RecordResult, error) {
+	if s.recordFn != nil {
+		return s.recordFn(ctx, d, o, opts)
+	}
+	return trust.RecordResult{Decision: trust.Decision{Domain: d, Level: trust.LevelAsk, CleanShips: 1, Recommendation: trust.RecommendationEscalate}}, nil
+}
+
+func (s *stubTrust) Override(ctx context.Context, d, reason string) (trust.Decision, error) {
+	if s.overrideFn != nil {
+		return s.overrideFn(ctx, d, reason)
+	}
+	return trust.Decision{Domain: d, Level: trust.LevelAsk, Recommendation: trust.RecommendationEscalate}, nil
+}
+
+func (s *stubTrust) List(ctx context.Context) ([]trust.Decision, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx)
+	}
+	return nil, nil
 }
 
 func (s *stubEngine) Remember(ctx context.Context, m memory.Memory) (engine.RememberResult, error) {
@@ -70,11 +108,18 @@ func notification(method string) string {
 // runServer sends lines to a test server and returns all response lines.
 func runServer(t *testing.T, eng Engine, lines ...string) []json.RawMessage {
 	t.Helper()
+	return runServerWithTrust(t, eng, &stubTrust{}, lines...)
+}
+
+// runServerWithTrust is like runServer but lets tests inject a specific
+// TrustEngine stub.
+func runServerWithTrust(t *testing.T, eng Engine, te TrustEngine, lines ...string) []json.RawMessage {
+	t.Helper()
 	input := strings.Join(lines, "\n") + "\n"
 	r := strings.NewReader(input)
 	var w bytes.Buffer
 
-	srv := NewServer(r, &w, eng)
+	srv := NewServer(r, &w, eng, te)
 	srv.now = func() time.Time { return time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) }
 
 	if err := srv.Run(context.Background()); err != nil {
@@ -162,15 +207,18 @@ func TestProtocol_ToolsListAfterInit(t *testing.T) {
 	if err := json.Unmarshal(result, &toolsList); err != nil {
 		t.Fatalf("unmarshal tools/list: %v", err)
 	}
-	if len(toolsList.Tools) != 4 {
-		t.Fatalf("got %d tools, want 4", len(toolsList.Tools))
+	if len(toolsList.Tools) != 7 {
+		t.Fatalf("got %d tools, want 7", len(toolsList.Tools))
 	}
 
 	names := map[string]bool{}
 	for _, tool := range toolsList.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"brain_remember", "brain_recall", "brain_list", "brain_forget"} {
+	for _, want := range []string{
+		"brain_remember", "brain_recall", "brain_list", "brain_forget",
+		"brain_trust", "brain_trust_record", "brain_trust_override",
+	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)
 		}
@@ -206,7 +254,7 @@ func TestProtocol_ParseError(t *testing.T) {
 	input := "this is not json\n"
 	r := strings.NewReader(input)
 	var w bytes.Buffer
-	srv := NewServer(r, &w, &stubEngine{})
+	srv := NewServer(r, &w, &stubEngine{}, &stubTrust{})
 
 	_ = srv.Run(context.Background())
 
@@ -231,7 +279,7 @@ func TestProtocol_InvalidJSONRPCVersion(t *testing.T) {
 	input := `{"jsonrpc":"1.0","method":"initialize","id":1}` + "\n"
 	r := strings.NewReader(input)
 	var w bytes.Buffer
-	srv := NewServer(r, &w, &stubEngine{})
+	srv := NewServer(r, &w, &stubEngine{}, &stubTrust{})
 
 	_ = srv.Run(context.Background())
 
@@ -314,7 +362,7 @@ func TestProtocol_WriteErrorStopsLoop(t *testing.T) {
 		rpc(3, "tools/list", nil), // should never be processed
 	}, "\n") + "\n"
 
-	srv := NewServer(strings.NewReader(input), fw, &stubEngine{})
+	srv := NewServer(strings.NewReader(input), fw, &stubEngine{}, &stubTrust{})
 	err := srv.Run(context.Background())
 	if err == nil {
 		t.Fatal("expected error from broken pipe")
@@ -331,7 +379,7 @@ func TestProtocol_ContextCancellation(t *testing.T) {
 	// Even with input available, should exit due to cancelled context.
 	input := rpc(1, "initialize", nil) + "\n"
 	var w bytes.Buffer
-	srv := NewServer(strings.NewReader(input), &w, &stubEngine{})
+	srv := NewServer(strings.NewReader(input), &w, &stubEngine{}, &stubTrust{})
 
 	err := srv.Run(ctx)
 	if err != context.Canceled {
@@ -342,7 +390,7 @@ func TestProtocol_ContextCancellation(t *testing.T) {
 func TestProtocol_EmptyLinesIgnored(t *testing.T) {
 	input := "\n\n" + rpc(1, "initialize", nil) + "\n\n"
 	var w bytes.Buffer
-	srv := NewServer(strings.NewReader(input), &w, &stubEngine{})
+	srv := NewServer(strings.NewReader(input), &w, &stubEngine{}, &stubTrust{})
 
 	_ = srv.Run(context.Background())
 

@@ -15,9 +15,15 @@ import (
 
 // newTestServer creates a Server with a stub engine and fixed clock for handler tests.
 func newTestServer(eng Engine) *Server {
+	return newTestServerWithTrust(eng, &stubTrust{})
+}
+
+// newTestServerWithTrust lets tests inject a specific TrustEngine.
+func newTestServerWithTrust(eng Engine, te TrustEngine) *Server {
 	return &Server{
-		eng: eng,
-		now: func() time.Time { return time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) },
+		eng:   eng,
+		trust: te,
+		now:   func() time.Time { return time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC) },
 	}
 }
 
