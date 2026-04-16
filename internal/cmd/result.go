@@ -46,3 +46,7 @@ type ForgetResult struct {
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
 }
+
+// Trust-command JSON payloads are built by trust.DecisionJSON and assembled
+// inline in trust.go. Keeping those shapes in typed structs here would
+// fork the schema — the shared helper is the one source of truth.
