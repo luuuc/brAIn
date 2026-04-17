@@ -12,13 +12,19 @@ Pre-alpha. The storage interface and markdown adapter are implemented. CLI and M
 
 ## Install
 
-From source:
+macOS and Linux (amd64 or arm64):
 
 ```bash
-go install github.com/luuuc/brain@latest
+curl -fsSL https://raw.githubusercontent.com/luuuc/brain/main/install.sh | sh
 ```
 
-Or download a binary from the [releases page](https://github.com/luuuc/brain/releases).
+The script detects your platform, downloads the matching binary from [GitHub Releases](https://github.com/luuuc/brain/releases), verifies its SHA256 checksum, and installs to `/usr/local/bin/brain` (or `~/.local/bin/brain` if `/usr/local/bin` is not writable).
+
+Or with Go:
+
+```bash
+go install github.com/luuuc/brain/cmd/brain@latest
+```
 
 ## How It Works
 
