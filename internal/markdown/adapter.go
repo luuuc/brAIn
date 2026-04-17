@@ -140,6 +140,34 @@ func (a *Adapter) List(_ context.Context, f store.Filter) ([]memory.Memory, erro
 	return result, nil
 }
 
+// AppendBody appends content to an existing file's body using O_APPEND,
+// bypassing the full read-modify-write cycle. The file must already
+// exist; callers use Write for creation. Intended for append-only logs
+// (effectiveness outcome entries) where rewriting the whole body on
+// every record would be quadratic over the file's lifetime.
+//
+// Atomicity note: a partial write on a crash can leave a truncated
+// trailing line. Readers tolerate that — unparseable lines are kept
+// verbatim by the engine's loadOutcomes and skipped by entries().
+func (a *Adapter) AppendBody(_ context.Context, path, content string) error {
+	absPath, err := a.safePath(path)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(absPath, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return store.ErrNotFound
+		}
+		return fmt.Errorf("append: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString(content); err != nil {
+		return fmt.Errorf("append write: %w", err)
+	}
+	return nil
+}
+
 func (a *Adapter) Delete(_ context.Context, path string) error {
 	absPath, err := a.safePath(path)
 	if err != nil {
