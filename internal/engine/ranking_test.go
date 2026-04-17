@@ -165,3 +165,78 @@ func TestRank(t *testing.T) {
 		})
 	}
 }
+
+func TestRank_EffectivenessAdjustment(t *testing.T) {
+	now := time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	past := func(days int) time.Time { return now.AddDate(0, 0, -days) }
+
+	tests := []struct {
+		name     string
+		memories []memory.Memory
+		scores   map[string]float64
+		want     []string
+	}{
+		{
+			name: "higher-scored persona ranks first within layer",
+			memories: []memory.Memory{
+				{Path: "lessons/a.md", Layer: memory.LayerLesson, Created: past(1), Persona: "kent-beck"},
+				{Path: "lessons/b.md", Layer: memory.LayerLesson, Created: past(2), Persona: "rich-hickey"},
+			},
+			scores: map[string]float64{
+				"kent-beck":   0.4,
+				"rich-hickey": 0.9,
+			},
+			want: []string{"lessons/b.md", "lessons/a.md"},
+		},
+		{
+			name: "memories without persona fall behind ranked ones",
+			memories: []memory.Memory{
+				{Path: "lessons/unranked.md", Layer: memory.LayerLesson, Created: past(1)},
+				{Path: "lessons/ranked.md", Layer: memory.LayerLesson, Created: past(5), Persona: "kent-beck"},
+			},
+			scores: map[string]float64{"kent-beck": 0.1},
+			want:   []string{"lessons/ranked.md", "lessons/unranked.md"},
+		},
+		{
+			name: "tied scores fall through to recency",
+			memories: []memory.Memory{
+				{Path: "lessons/older.md", Layer: memory.LayerLesson, Created: past(5), Persona: "a"},
+				{Path: "lessons/newer.md", Layer: memory.LayerLesson, Created: past(1), Persona: "b"},
+			},
+			scores: map[string]float64{"a": 0.5, "b": 0.5},
+			want:   []string{"lessons/newer.md", "lessons/older.md"},
+		},
+		{
+			name: "effectiveness never crosses layer boundaries",
+			memories: []memory.Memory{
+				{Path: "facts/hi-score.md", Layer: memory.LayerFact, Created: past(1), Persona: "high"},
+				{Path: "lessons/low-score.md", Layer: memory.LayerLesson, Created: past(1), Persona: "low"},
+			},
+			scores: map[string]float64{"high": 1.0, "low": 0.0},
+			want:   []string{"lessons/low-score.md", "facts/hi-score.md"},
+		},
+		{
+			name: "empty score map leaves ranking unchanged",
+			memories: []memory.Memory{
+				{Path: "lessons/a.md", Layer: memory.LayerLesson, Created: past(5), Persona: "kent-beck"},
+				{Path: "lessons/b.md", Layer: memory.LayerLesson, Created: past(1), Persona: "rich-hickey"},
+			},
+			scores: map[string]float64{},
+			want:   []string{"lessons/b.md", "lessons/a.md"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Rank(tt.memories, RankOptions{Now: now, Limit: 10, EffectivenessScores: tt.scores})
+			if len(got) != len(tt.want) {
+				t.Fatalf("len = %d, want %d", len(got), len(tt.want))
+			}
+			for i, m := range got {
+				if m.Path != tt.want[i] {
+					t.Errorf("got[%d].Path = %q, want %q", i, m.Path, tt.want[i])
+				}
+			}
+		})
+	}
+}

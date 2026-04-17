@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luuuc/brain/internal/memory"
@@ -13,14 +14,16 @@ import (
 
 // RecallOptions controls what Recall returns.
 type RecallOptions struct {
-	Domain         string            // filter to a specific domain (empty = all)
-	Query          string            // substring/keyword match against titles and tags
-	Layer          *memory.Layer     // filter to a specific layer (nil = all)
-	Limit          int               // max results; 0 means no limit
-	IncludeRetired bool              // include retired lessons (default false)
+	Domain         string        // filter to a specific domain (empty = all)
+	Query          string        // substring/keyword match against titles and tags
+	Layer          *memory.Layer // filter to a specific layer (nil = all)
+	Limit          int           // max results; 0 means no limit
+	IncludeRetired bool          // include retired lessons (default false)
 
-	// Placeholder for pitch 01-06 effectiveness-adjusted ranking.
-	EffectivenessScores map[string]float64
+	// UseEffectiveness, when true and Domain is set, makes Recall load
+	// the domain's effectiveness memories and rank memories with higher
+	// persona acceptance rates above lower ones within the same layer.
+	UseEffectiveness bool
 }
 
 // RememberResult is the return value of Remember.
@@ -32,25 +35,68 @@ type RememberResult struct {
 
 // Engine sits between the storage adapter and the interfaces (CLI/MCP).
 // It handles recall with ranking, staleness, retirement, classification,
-// and supersession.
+// supersession, and effectiveness tracking.
 type Engine struct {
 	store store.Store
 	now   func() time.Time
+
+	// lockDir is the root under which the effectiveness advisory lock
+	// lives. Empty means in-process-only serialisation (tests / callers
+	// that don't need cross-process safety). When set, Track/EffectivenessStatsFor
+	// flock <lockDir>/effectiveness/.lock.
+	lockDir     string
+	lockTimeout time.Duration
+
+	// effMu serialises the effectiveness verbs in-process (Track,
+	// EffectivenessStatsFor, loadEffectivenessScores). It does NOT
+	// guard Remember/Recall/Forget — those remain lock-free. Held
+	// across the flock wait is intentional at brain's scale. Operator
+	// recovery on lock-timeout is in the error message itself (lock.go).
+	effMu sync.Mutex
+}
+
+// Option customises Engine construction.
+type Option func(*Engine)
+
+// WithLockDir enables cross-process serialisation of effectiveness writes by
+// placing an advisory lock at <dir>/effectiveness/.lock. Without this option
+// the engine serialises only within the current process.
+func WithLockDir(dir string) Option {
+	return func(e *Engine) { e.lockDir = dir }
+}
+
+// WithLockTimeout overrides the advisory-lock acquisition ceiling. Intended
+// for tests; production uses defaultEngineLockTimeout.
+func WithLockTimeout(d time.Duration) Option {
+	return func(e *Engine) { e.lockTimeout = d }
+}
+
+// WithClock overrides the engine's clock. Intended for tests that need
+// deterministic "now" values; production uses time.Now.
+func WithClock(clock func() time.Time) Option {
+	return func(e *Engine) { e.now = clock }
 }
 
 // NewEngine creates a MemoryEngine backed by the given store.
-func NewEngine(_ context.Context, s store.Store) (*Engine, error) {
+func NewEngine(_ context.Context, s store.Store, opts ...Option) (*Engine, error) {
 	if s == nil {
 		return nil, fmt.Errorf("engine: store must not be nil")
 	}
-	return &Engine{store: s, now: time.Now}, nil
+	e := &Engine{
+		store:       s,
+		now:         time.Now,
+		lockTimeout: defaultEngineLockTimeout,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e, nil
 }
 
 // Remember writes a memory to the store. If no layer is set, it classifies
 // the layer from content. If the memory specifies Supersedes, the target
 // is marked as retired.
 func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult, error) {
-	// 0. Validate required fields.
 	if m.Domain == "" {
 		return RememberResult{}, errors.New("engine: remember: domain must not be empty")
 	}
@@ -58,12 +104,10 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 		return RememberResult{}, errors.New("engine: remember: created must not be zero")
 	}
 
-	// 1. Classify layer if not set.
 	if m.Layer == "" {
 		m.Layer = ClassifyLayer(m.Body)
 	}
 
-	// 2. Write the new memory.
 	path, err := e.store.Write(ctx, m)
 	if err != nil {
 		return RememberResult{}, fmt.Errorf("engine: remember: %w", err)
@@ -71,7 +115,6 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 
 	var warnings []string
 
-	// 3. If supersedes is set, retire the target.
 	if m.Supersedes != "" {
 		if err := e.retire(ctx, m.Supersedes, "superseded"); err != nil {
 			warnings = append(warnings, fmt.Sprintf("could not retire superseded memory %q: %v", m.Supersedes, err))
@@ -84,7 +127,6 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 // Recall returns memories matching the given options, ranked by authority
 // hierarchy and recency.
 func (e *Engine) Recall(ctx context.Context, opts RecallOptions) ([]memory.Memory, error) {
-	// Build store filter from options.
 	f := store.Filter{}
 	if opts.Layer != nil {
 		f.Layer = opts.Layer
@@ -98,20 +140,55 @@ func (e *Engine) Recall(ctx context.Context, opts RecallOptions) ([]memory.Memor
 		return nil, fmt.Errorf("engine: recall: %w", err)
 	}
 
-	// Query matching: substring match against body first line (title) and tags.
 	if opts.Query != "" {
 		all = filterByQuery(all, opts.Query)
 	}
 
-	// Rank. Limit <= 0 means no limit (return all).
+	var scores map[string]float64
+	if opts.UseEffectiveness && opts.Domain != "" {
+		scores, err = e.loadEffectivenessScores(ctx, opts.Domain)
+		if err != nil {
+			return nil, fmt.Errorf("engine: recall: %w", err)
+		}
+	}
+
 	ranked := Rank(all, RankOptions{
 		Now:                 e.now(),
 		Limit:               opts.Limit,
 		IncludeRetired:      opts.IncludeRetired,
-		EffectivenessScores: opts.EffectivenessScores,
+		EffectivenessScores: scores,
 	})
 
 	return ranked, nil
+}
+
+// loadEffectivenessScores builds a persona → acceptance-rate map for the
+// given domain by reading all effectiveness files for that domain. Takes a
+// shared lock so it never sees a Track mid-write.
+func (e *Engine) loadEffectivenessScores(ctx context.Context, domain string) (map[string]float64, error) {
+	lock, err := e.acquireEffectivenessLock(ctx, lockShared)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.releaseAndLog()
+
+	layer := memory.LayerEffectiveness
+	filter := store.Filter{Layer: &layer, Domain: &domain}
+	list, err := e.store.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	now := e.now()
+	scores := make(map[string]float64, len(list))
+	for _, m := range list {
+		if m.Persona == "" {
+			continue
+		}
+		entries := loadOutcomes(m.Body).entries()
+		stats := computeStats(entries, now, effectivenessWindowDays)
+		scores[m.Persona] = stats.AcceptanceRate
+	}
+	return scores, nil
 }
 
 // Forget marks a memory as retired without deleting the file.
@@ -124,14 +201,14 @@ func (e *Engine) Forget(ctx context.Context, path, reason string) error {
 func (e *Engine) retire(ctx context.Context, path, reason string) error {
 	m, err := e.store.Read(ctx, path)
 	if err != nil {
-		return fmt.Errorf("retire %q: %w", path, err)
+		return fmt.Errorf("engine: retire %q: %w", path, err)
 	}
 	m.Retired = true
 	m.RetiredReason = reason
 	now := e.now()
 	m.Updated = &now
 	if _, err := e.store.Write(ctx, m); err != nil {
-		return fmt.Errorf("retire %q: %w", path, err)
+		return fmt.Errorf("engine: retire %q: %w", path, err)
 	}
 	return nil
 }
@@ -151,12 +228,10 @@ func filterByQuery(memories []memory.Memory, query string) []memory.Memory {
 
 // matchesQuery checks if a memory's title or tags contain the query substring.
 func matchesQuery(m memory.Memory, q string) bool {
-	// Check first line of body (title).
 	title := firstLine(m.Body)
 	if strings.Contains(strings.ToLower(title), q) {
 		return true
 	}
-	// Check tags.
 	for _, tag := range m.Tags {
 		if strings.Contains(strings.ToLower(tag), q) {
 			return true
