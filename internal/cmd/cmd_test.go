@@ -28,10 +28,18 @@ func runStdin(t *testing.T, brainDir, stdin string, args ...string) (int, string
 
 func runWithStdin(t *testing.T, brainDir string, stdin io.Reader, args ...string) (int, string) {
 	t.Helper()
-
 	fullArgs := append([]string{"--dir", brainDir}, args...)
+	return executeAndCapture(t, stdin, fullArgs...)
+}
 
-	// Capture stdout via pipe.
+// executeAndCapture builds a fresh rootCmd, runs it with args, and captures
+// stdout via pipe. Callers arrange cwd, stdin, and any --dir flag themselves.
+//
+// Captures os.Stdout globally — do not use t.Parallel() in tests that call
+// this helper.
+func executeAndCapture(t *testing.T, stdin io.Reader, args ...string) (int, string) {
+	t.Helper()
+
 	old := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -41,7 +49,7 @@ func runWithStdin(t *testing.T, brainDir string, stdin io.Reader, args ...string
 
 	cmd := rootCmd()
 	registerSubcommands(cmd)
-	cmd.SetArgs(fullArgs)
+	cmd.SetArgs(args)
 	if stdin != nil {
 		cmd.SetIn(stdin)
 	}

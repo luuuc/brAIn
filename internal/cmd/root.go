@@ -36,24 +36,34 @@ func rootCmd() *cobra.Command {
 		Short:   "Persistent, layered memory for AI-assisted projects",
 		Version: version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// --json is honored by every command (including meta commands
+			// like version), so propagate it unconditionally.
+			ctx := context.WithValue(cmd.Context(), jsonKey, jsonFlag)
+			cmd.SetContext(ctx)
+
+			// Meta commands (help, version, completion) must work on a
+			// fresh install before any .brain/ directory exists — skip
+			// engine setup for them.
+			if isMetaCommand(cmd) {
+				return nil
+			}
+
 			brainDir, err := resolveBrainDir(dirFlag)
 			if err != nil {
 				return err
 			}
 			s := markdown.New(brainDir)
-			eng, err := engine.NewEngine(cmd.Context(), s, engine.WithLockDir(brainDir))
+			eng, err := engine.NewEngine(ctx, s, engine.WithLockDir(brainDir))
 			if err != nil {
 				return err
 			}
 			trustDir := filepath.Join(brainDir, "trust")
-			teng, err := trust.NewEngine(cmd.Context(), trustDir, s, trust.WithLockTimeoutFromEnv())
+			teng, err := trust.NewEngine(ctx, trustDir, s, trust.WithLockTimeoutFromEnv())
 			if err != nil {
 				return err
 			}
-			ctx := cmd.Context()
 			ctx = context.WithValue(ctx, engineKey, eng)
 			ctx = context.WithValue(ctx, trustEngineKey, teng)
-			ctx = context.WithValue(ctx, jsonKey, jsonFlag)
 			ctx = context.WithValue(ctx, brainDirKey, brainDir)
 			cmd.SetContext(ctx)
 			return nil
@@ -179,6 +189,27 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(mcpCmd())
 	root.AddCommand(trustCmd())
 	root.AddCommand(trackCmd())
+	root.AddCommand(versionCmd())
+}
+
+// isMetaCommand reports whether cmd (or any ancestor) is a discovery
+// command that should run without requiring a .brain/ directory. Walks
+// the parent chain so "brain help remember" and "brain completion bash"
+// are both recognized.
+//
+// Contract: the names "help", "version", and "completion" are reserved
+// for cobra's built-in discovery commands and the brain version
+// subcommand. Do not add a sibling subcommand with one of these names
+// for a non-meta purpose — it would bypass engine setup here and then
+// nil-deref when it called engineFrom(cmd).
+func isMetaCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "help", "version", "completion":
+			return true
+		}
+	}
+	return false
 }
 
 // ExitError wraps an error with an exit code.
