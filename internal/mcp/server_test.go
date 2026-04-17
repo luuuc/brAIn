@@ -17,9 +17,11 @@ import (
 // stubEngine is a minimal Engine implementation for protocol-level tests.
 // Most protocol tests don't exercise tools, so defaults are fine.
 type stubEngine struct {
-	rememberFn func(context.Context, memory.Memory) (engine.RememberResult, error)
-	recallFn   func(context.Context, engine.RecallOptions) ([]memory.Memory, error)
-	forgetFn   func(context.Context, string, string) error
+	rememberFn       func(context.Context, memory.Memory) (engine.RememberResult, error)
+	recallFn         func(context.Context, engine.RecallOptions) ([]memory.Memory, error)
+	forgetFn         func(context.Context, string, string) error
+	trackFn          func(context.Context, string, string, engine.Outcome, string) (engine.EffectivenessStats, error)
+	effectivenessFn  func(context.Context, string, string) (engine.EffectivenessStats, error)
 }
 
 // stubTrust is a minimal TrustEngine. Protocol tests rarely exercise trust
@@ -78,6 +80,20 @@ func (s *stubEngine) Forget(ctx context.Context, path, reason string) error {
 		return s.forgetFn(ctx, path, reason)
 	}
 	return nil
+}
+
+func (s *stubEngine) Track(ctx context.Context, persona, domain string, outcome engine.Outcome, reason string) (engine.EffectivenessStats, error) {
+	if s.trackFn != nil {
+		return s.trackFn(ctx, persona, domain, outcome, reason)
+	}
+	return engine.EffectivenessStats{Persona: persona, Domain: domain, WindowDays: 90}, nil
+}
+
+func (s *stubEngine) EffectivenessStatsFor(ctx context.Context, persona, domain string) (engine.EffectivenessStats, error) {
+	if s.effectivenessFn != nil {
+		return s.effectivenessFn(ctx, persona, domain)
+	}
+	return engine.EffectivenessStats{Persona: persona, Domain: domain, WindowDays: 90}, nil
 }
 
 // rpc builds a JSON-RPC 2.0 request line. Marshal error is ignored because
@@ -207,8 +223,8 @@ func TestProtocol_ToolsListAfterInit(t *testing.T) {
 	if err := json.Unmarshal(result, &toolsList); err != nil {
 		t.Fatalf("unmarshal tools/list: %v", err)
 	}
-	if len(toolsList.Tools) != 7 {
-		t.Fatalf("got %d tools, want 7", len(toolsList.Tools))
+	if len(toolsList.Tools) != 8 {
+		t.Fatalf("got %d tools, want 8", len(toolsList.Tools))
 	}
 
 	names := map[string]bool{}
@@ -218,6 +234,7 @@ func TestProtocol_ToolsListAfterInit(t *testing.T) {
 	for _, want := range []string{
 		"brain_remember", "brain_recall", "brain_list", "brain_forget",
 		"brain_trust", "brain_trust_record", "brain_trust_override",
+		"brain_track",
 	} {
 		if !names[want] {
 			t.Errorf("missing tool %q", want)

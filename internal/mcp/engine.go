@@ -15,6 +15,8 @@ type Engine interface {
 	Remember(ctx context.Context, m memory.Memory) (engine.RememberResult, error)
 	Recall(ctx context.Context, opts engine.RecallOptions) ([]memory.Memory, error)
 	Forget(ctx context.Context, path, reason string) error
+	Track(ctx context.Context, persona, domain string, outcome engine.Outcome, reason string) (engine.EffectivenessStats, error)
+	EffectivenessStatsFor(ctx context.Context, persona, domain string) (engine.EffectivenessStats, error)
 }
 
 // TrustEngine is the subset of trust.Engine that the MCP server uses.
