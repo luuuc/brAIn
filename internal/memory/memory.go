@@ -73,12 +73,9 @@ type Memory struct {
 	RetireAfter int `yaml:"retire_after,omitempty"`
 
 	// Layer-specific: effectiveness
-	Persona        string  `yaml:"persona,omitempty"`
-	WindowStart    *time.Time `yaml:"window_start,omitempty"`
-	WindowEnd      *time.Time `yaml:"window_end,omitempty"`
-	Accepted       int     `yaml:"accepted,omitempty"`
-	Overridden     int     `yaml:"overridden,omitempty"`
-	AcceptanceRate float64 `yaml:"acceptance_rate,omitempty"`
+	// The outcome list in Body is the single source of truth; rates are
+	// derived on read (see engine.parseOutcomes / computeStats).
+	Persona string `yaml:"persona,omitempty"`
 
 	// Layer-specific: corrections
 	Immutable bool `yaml:"immutable,omitempty"`

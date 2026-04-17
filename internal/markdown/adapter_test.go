@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,19 +218,19 @@ func TestLayerSpecificFields(t *testing.T) {
 	})
 
 	t.Run("effectiveness_persona", func(t *testing.T) {
-		windowStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-		windowEnd := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
+		// Pitch 01-06 moved counters out of frontmatter — the outcome list
+		// in the body is the single source of truth. The adapter just
+		// round-trips persona metadata.
 		m := memory.Memory{
-			Layer:          memory.LayerEffectiveness,
-			Domain:         "testing",
-			Created:        time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC),
-			Persona:        "kent-beck",
-			WindowStart:    &windowStart,
-			WindowEnd:      &windowEnd,
-			Accepted:       14,
-			Overridden:     3,
-			AcceptanceRate: 0.82,
-			Body:           "# Kent Beck effectiveness\n",
+			Layer:   memory.LayerEffectiveness,
+			Domain:  "testing",
+			Created: time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC),
+			Persona: "kent-beck",
+			Body: "# Kent Beck effectiveness in testing\n\n" +
+				"## Outcomes\n" +
+				"- 2026-04-14: accepted — PR #52\n" +
+				"- 2026-04-10: accepted\n" +
+				"- 2026-04-03: overridden — false positive on STI model tests\n",
 		}
 
 		path, err := a.Write(ctx, m)
@@ -244,8 +245,11 @@ func TestLayerSpecificFields(t *testing.T) {
 		if got.Persona != "kent-beck" {
 			t.Errorf("Persona = %q, want kent-beck", got.Persona)
 		}
-		if got.AcceptanceRate != 0.82 {
-			t.Errorf("AcceptanceRate = %f, want 0.82", got.AcceptanceRate)
+		if !strings.Contains(got.Body, "## Outcomes") {
+			t.Errorf("Body missing ## Outcomes section: %q", got.Body)
+		}
+		if !strings.Contains(got.Body, "2026-04-14: accepted") {
+			t.Errorf("Body missing first outcome line: %q", got.Body)
 		}
 	})
 

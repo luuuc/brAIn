@@ -174,6 +174,33 @@ var brainTools = []toolDefinition{
 		},
 	},
 	{
+		Name:        "brain_track",
+		Description: "Record a Council persona outcome (accepted/overridden) for a domain, or view current stats. Effectiveness is a rolling 90-day acceptance rate; the returned stats feed recall ranking when UseEffectiveness is set.",
+		InputSchema: toolSchema{
+			Type: "object",
+			Properties: map[string]schemaProperty{
+				"persona": {
+					Type:        "string",
+					Description: "Persona slug (e.g. \"kent-beck\"). Lower-kebab-case.",
+				},
+				"domain": {
+					Type:        "string",
+					Description: "Domain slug (e.g. \"testing\"). Lower-kebab-case.",
+				},
+				"outcome": {
+					Type:        "string",
+					Description: "accepted or overridden. Omit to view current stats without recording.",
+					Enum:        []string{"accepted", "overridden"},
+				},
+				"reason": {
+					Type:        "string",
+					Description: "Optional reason appended to the outcome log (e.g. PR ref, override rationale).",
+				},
+			},
+			Required: []string{"persona", "domain"},
+		},
+	},
+	{
 		Name:        "brain_trust_override",
 		Description: "Record a human override for a trust domain. Writes a correction memory and appends an override event to the domain's history. Does not change trust level.",
 		InputSchema: toolSchema{
