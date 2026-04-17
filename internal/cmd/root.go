@@ -41,7 +41,7 @@ func rootCmd() *cobra.Command {
 				return err
 			}
 			s := markdown.New(brainDir)
-			eng, err := engine.NewEngine(cmd.Context(), s)
+			eng, err := engine.NewEngine(cmd.Context(), s, engine.WithLockDir(brainDir))
 			if err != nil {
 				return err
 			}
@@ -178,6 +178,7 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(forgetCmd())
 	root.AddCommand(mcpCmd())
 	root.AddCommand(trustCmd())
+	root.AddCommand(trackCmd())
 }
 
 // ExitError wraps an error with an exit code.
