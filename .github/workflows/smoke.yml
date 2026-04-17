@@ -1,0 +1,96 @@
+name: Smoke Test
+
+# Validates a just-published GitHub Release by downloading the Linux
+# amd64 archive and exercising the brain CLI against output assertions.
+# Separate from release.yml so a smoke failure doesn't block the release
+# itself — operators can diagnose and re-run without re-cutting a tag.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smoke:
+    name: Smoke-test released binary (linux/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release archive and checksums
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          ARCHIVE="brain_${VERSION}_linux_amd64.tar.gz"
+          CHECKSUMS="brain_${VERSION}_checksums.txt"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          echo "Tag: ${TAG}  Version: ${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+          curl -fsSL -o "${ARCHIVE}" "${BASE}/${ARCHIVE}"
+          curl -fsSL -o "${CHECKSUMS}" "${BASE}/${CHECKSUMS}"
+
+          # Verify checksum before running anything from the archive.
+          EXPECTED="$(grep -F "${ARCHIVE}" "${CHECKSUMS}" | awk '{print $1}')"
+          ACTUAL="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+          if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "checksum mismatch: expected=${EXPECTED} actual=${ACTUAL}" >&2
+            exit 1
+          fi
+          echo "Checksum verified."
+
+          tar -xzf "${ARCHIVE}"
+          chmod +x ./brain
+
+      - name: brain version reports the tagged version
+        run: |
+          set -euo pipefail
+          out="$(./brain version)"
+          echo "$out"
+          echo "$out" | grep -F "${VERSION}" >/dev/null
+
+      - name: brain help lists the expected subcommands
+        run: |
+          set -euo pipefail
+          out="$(./brain help)"
+          echo "$out"
+          for sub in remember recall list forget mcp trust track version; do
+            echo "$out" | grep -qE "^\s*${sub}\b" || { echo "help missing: ${sub}" >&2; exit 1; }
+          done
+
+      - name: brain remember writes a memory to disk
+        run: |
+          set -euo pipefail
+          mkdir -p .brain
+          ./brain --dir .brain remember "Smoke test memory" --domain smoke --layer fact
+          # Remember returns a relative path inside the store; verify a
+          # fact file was created.
+          count="$(find .brain/facts -type f -name '*.md' | wc -l | tr -d ' ')"
+          if [ "$count" -lt 1 ]; then
+            echo "no fact file created under .brain/facts" >&2
+            ls -R .brain >&2 || true
+            exit 1
+          fi
+
+      - name: brain recall returns the remembered memory
+        run: |
+          set -euo pipefail
+          out="$(./brain --dir .brain recall --domain smoke)"
+          echo "$out"
+          echo "$out" | grep -F "Smoke test memory" >/dev/null
+
+      - name: brain trust returns ask for a new domain
+        run: |
+          set -euo pipefail
+          out="$(./brain --dir .brain trust --domain smoke)"
+          echo "$out"
+          # Default level for an un-recorded domain is "ask".
+          echo "$out" | grep -E "^Level:\s+ask\b" >/dev/null
