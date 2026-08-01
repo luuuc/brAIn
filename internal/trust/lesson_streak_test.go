@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luuuc/brain/internal/config"
 	"github.com/luuuc/brain/internal/memory"
 	"github.com/luuuc/brain/internal/store"
 )
@@ -72,7 +73,7 @@ func TestLessonStreak_retiresAtThreshold(t *testing.T) {
 	path := seedLesson(t, md, memory.Memory{
 		Domain:      "database",
 		Body:        "# Migration lesson\n",
-		StreakClean: LessonRetireAfter - 1,
+		StreakClean: defaultRetireAfterStreak - 1,
 	})
 	r, err := eng.Record(context.Background(), "database", OutcomeClean, RecordOptions{})
 	if err != nil {
@@ -88,8 +89,8 @@ func TestLessonStreak_retiresAtThreshold(t *testing.T) {
 	if !m.Retired {
 		t.Fatal("lesson should be retired after hitting threshold")
 	}
-	if m.StreakClean != LessonRetireAfter {
-		t.Fatalf("streak_clean = %d, want %d", m.StreakClean, LessonRetireAfter)
+	if m.StreakClean != defaultRetireAfterStreak {
+		t.Fatalf("streak_clean = %d, want %d", m.StreakClean, defaultRetireAfterStreak)
 	}
 }
 
@@ -161,5 +162,84 @@ func TestLessonStreak_failureDoesNotTick(t *testing.T) {
 	}
 	if m.StreakClean != 0 {
 		t.Fatalf("streak_clean ticked on failure: got %d", m.StreakClean)
+	}
+}
+
+// The configured retire_after_streak must actually shorten lesson lifetime.
+func TestLessonStreak_honorsConfiguredRetireAfter(t *testing.T) {
+	eng, md, _ := newTestEngineWithOpts(t, WithLessons(config.Lessons{RetireAfterStreak: 2}))
+	ctx := context.Background()
+	path := seedLesson(t, md, memory.Memory{
+		Domain: "database",
+		Body:   "# Short-lived lesson\n",
+	})
+
+	// First clean outcome: streak 1, still active.
+	if _, err := eng.Record(ctx, "database", OutcomeClean, RecordOptions{}); err != nil {
+		t.Fatalf("Record 1: %v", err)
+	}
+	if m, err := md.Read(ctx, path); err != nil {
+		t.Fatalf("Read: %v", err)
+	} else if m.Retired {
+		t.Fatal("lesson retired after 1 outcome, want it to survive until 2")
+	}
+
+	// Second: streak 2 reaches the configured threshold.
+	r, err := eng.Record(ctx, "database", OutcomeClean, RecordOptions{})
+	if err != nil {
+		t.Fatalf("Record 2: %v", err)
+	}
+	if r.LessonsRetired != 1 {
+		t.Fatalf("LessonsRetired = %d, want 1", r.LessonsRetired)
+	}
+	if m, err := md.Read(ctx, path); err != nil {
+		t.Fatalf("Read: %v", err)
+	} else if !m.Retired {
+		t.Error("lesson not retired at the configured streak")
+	}
+}
+
+// A lesson's own retire_after still beats the configured default, in both
+// directions.
+func TestLessonStreak_perLessonRetireAfterBeatsConfig(t *testing.T) {
+	eng, md, _ := newTestEngineWithOpts(t, WithLessons(config.Lessons{RetireAfterStreak: 2}))
+	ctx := context.Background()
+	path := seedLesson(t, md, memory.Memory{
+		Domain:      "database",
+		Body:        "# Long-lived lesson\n",
+		RetireAfter: 5,
+	})
+
+	for i := 0; i < 4; i++ {
+		if _, err := eng.Record(ctx, "database", OutcomeClean, RecordOptions{}); err != nil {
+			t.Fatalf("Record %d: %v", i, err)
+		}
+	}
+	m, err := md.Read(ctx, path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if m.Retired {
+		t.Fatal("lesson retired at the config threshold; its own retire_after: 5 should win")
+	}
+	if _, err := eng.Record(ctx, "database", OutcomeClean, RecordOptions{}); err != nil {
+		t.Fatalf("Record 5: %v", err)
+	}
+	if m, err := md.Read(ctx, path); err != nil {
+		t.Fatalf("Read: %v", err)
+	} else if !m.Retired {
+		t.Error("lesson not retired at its own retire_after")
+	}
+}
+
+// A non-positive streak would retire every lesson on its first clean
+// outcome, so the option refuses it and keeps the default.
+func TestWithLessons_rejectsNonPositive(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		eng, _, _ := newTestEngineWithOpts(t, WithLessons(config.Lessons{RetireAfterStreak: n}))
+		if eng.lessons.RetireAfterStreak != defaultRetireAfterStreak {
+			t.Errorf("retire_after_streak=%d applied; want default %d kept",
+				n, defaultRetireAfterStreak)
+		}
 	}
 }

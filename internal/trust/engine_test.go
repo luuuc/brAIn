@@ -66,7 +66,7 @@ func TestCheck_respectsHotfix(t *testing.T) {
 func TestCheck_afterPromotion(t *testing.T) {
 	eng := newTestEngine(t)
 	ctx := context.Background()
-	for i := 0; i < PromoteAskToNotify; i++ {
+	for i := 0; i < defaultThresholds.PromoteToNotify; i++ {
 		if _, err := eng.Record(ctx, "frontend", OutcomeClean, RecordOptions{}); err != nil {
 			t.Fatalf("Record #%d: %v", i, err)
 		}

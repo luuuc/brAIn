@@ -3,7 +3,11 @@
 // also ticks lesson retirement streaks as a side effect of recording outcomes.
 package trust
 
-import "time"
+import (
+	"time"
+
+	"github.com/luuuc/brain/internal/config"
+)
 
 // Level is a per-domain autonomy level.
 type Level string
@@ -49,17 +53,6 @@ func (o Outcome) Valid() bool {
 	}
 	return false
 }
-
-// Promotion thresholds. Counter resets to zero at each level.
-const (
-	PromoteAskToNotify        = 10
-	PromoteNotifyToAutoShip   = 30
-	PromoteAutoShipToFullAuto = 100
-)
-
-// LessonRetireAfter is the default streak_clean threshold at which a lesson
-// retires. Lessons may override via their retire_after field.
-const LessonRetireAfter = 20
 
 // SeenRefsCap bounds SeenRefs per domain. Oldest entries are evicted FIFO
 // once the cap is hit. 500 refs covers years of CI traffic; the cap keeps
@@ -175,18 +168,28 @@ func Recommend(level Level, hotfix bool) Recommendation {
 	return RecommendationEscalate
 }
 
-// promoteThreshold returns the clean_ships count needed to promote out of level.
-// Returns 0 for LevelFullAuto (no further promotion).
-func promoteThreshold(level Level) int {
+// PromoteThreshold returns the clean_ships count needed to promote out of
+// level under the given thresholds. Returns 0 for LevelFullAuto (no further
+// promotion).
+//
+// Exported so callers that display promotion progress — brain config — read
+// the same mapping the engine acts on. A second copy of this switch would
+// eventually show users a target the engine does not honour.
+func PromoteThreshold(t config.Trust, level Level) int {
 	switch level {
 	case LevelAsk:
-		return PromoteAskToNotify
+		return t.PromoteToNotify
 	case LevelNotify:
-		return PromoteNotifyToAutoShip
+		return t.PromoteToAutoShip
 	case LevelAutoShip:
-		return PromoteAutoShipToFullAuto
+		return t.PromoteToFullAuto
 	}
 	return 0
+}
+
+// promoteThreshold applies this engine's configured thresholds.
+func (e *Engine) promoteThreshold(level Level) int {
+	return PromoteThreshold(e.thresholds, level)
 }
 
 // nextLevel returns the next level up, or the same level if already at the top.
