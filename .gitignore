@@ -56,7 +56,11 @@ go.work.sum
 .env
 .env.*
 !.env.example
-brain.yml
+# Anchored to the repo root: this is brAIn's own local runtime config.
+# Unanchored, it would also match .brain/brain.yml — the file `brain init`
+# generates — so a user's committed thresholds would silently never reach
+# their team.
+/brain.yml
 /data/
 *.db
 *.db-journal

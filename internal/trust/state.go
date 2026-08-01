@@ -15,7 +15,6 @@ import (
 	"github.com/luuuc/brain/internal/store"
 )
 
-
 // StateFileName is the name of the trust state file inside the trust directory.
 const StateFileName = "trust.yml"
 
@@ -460,4 +459,3 @@ func fileExists(path string) (bool, error) {
 	}
 	return false, err
 }
-

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luuuc/brain/internal/config"
 	"github.com/luuuc/brain/internal/markdown"
 	"github.com/luuuc/brain/internal/store"
 )
@@ -38,6 +39,15 @@ func newTestEngineWithOpts(t *testing.T, opts ...Option) (*Engine, store.Store, 
 	return eng, md, trustDir
 }
 
+// defaultThresholds is what an engine constructed without WithThresholds
+// uses. Tests read them from config rather than restating the numbers, so the
+// defaults keep exactly one home.
+var defaultThresholds = config.Default().Trust
+
+// defaultRetireAfterStreak is the lesson retirement streak an engine uses
+// when WithLessons is not passed.
+var defaultRetireAfterStreak = config.Default().Lessons.RetireAfterStreak
+
 // cumulativeCleanShipsTo returns the number of clean outcomes needed to
 // reach target starting from the ask-level default. Shared by tests that
 // need to climb a domain to a given level via Record (never via direct
@@ -48,11 +58,11 @@ func cumulativeCleanShipsTo(t *testing.T, target Level) int {
 	case LevelAsk:
 		return 0
 	case LevelNotify:
-		return PromoteAskToNotify
+		return defaultThresholds.PromoteToNotify
 	case LevelAutoShip:
-		return PromoteAskToNotify + PromoteNotifyToAutoShip
+		return defaultThresholds.PromoteToNotify + defaultThresholds.PromoteToAutoShip
 	case LevelFullAuto:
-		return PromoteAskToNotify + PromoteNotifyToAutoShip + PromoteAutoShipToFullAuto
+		return defaultThresholds.PromoteToNotify + defaultThresholds.PromoteToAutoShip + defaultThresholds.PromoteToFullAuto
 	}
 	t.Fatalf("unknown target level %q", target)
 	return 0

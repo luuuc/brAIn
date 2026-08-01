@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/luuuc/brain/internal/config"
 	"github.com/luuuc/brain/internal/memory"
 	"github.com/luuuc/brain/internal/store"
 )
@@ -28,6 +29,10 @@ const defaultLockTimeout = 5 * time.Second
 
 // Engine is the trust engine. It reads and writes trust state and ticks
 // lesson retirement streaks as a side effect of recording clean outcomes.
+//
+// Every field is written once during NewEngine and read-only afterwards, so
+// a single Engine is safe for concurrent use — the MCP server shares one
+// across requests. Mutable state lives on disk, guarded by the advisory lock.
 type Engine struct {
 	dir         string
 	store       store.Store
@@ -35,6 +40,8 @@ type Engine struct {
 	lockTimeout time.Duration
 	seenRefsCap int
 	syncWrites  bool // if true, writeState fsyncs the tmp file and parent dir for crash durability
+	thresholds  config.Trust
+	lessons     config.Lessons
 }
 
 // Option configures an Engine at construction.
@@ -70,6 +77,50 @@ func WithLockTimeoutFromEnv() Option {
 	}
 }
 
+// WithThresholds overrides the promotion thresholds, normally supplied from
+// brain.yml. Each threshold must be at least 1; a non-positive value is
+// refused with a slog.Warn and the engine keeps its defaults, because a
+// threshold of 0 would silently freeze the ladder rather than loosen it.
+//
+// Changing a threshold does not re-evaluate existing domains: promotion is
+// only ever assessed while recording an outcome. Raising one therefore never
+// demotes a domain already past it — that is what `brain trust override` is
+// for.
+func WithThresholds(t config.Trust) Option {
+	return func(e *Engine) {
+		if t.PromoteToNotify < 1 || t.PromoteToAutoShip < 1 || t.PromoteToFullAuto < 1 {
+			slog.Warn("trust: WithThresholds requires every threshold >= 1; keeping defaults",
+				"thresholds", t, "defaults", e.thresholds)
+			return
+		}
+		e.thresholds = t
+	}
+}
+
+// WithLessons overrides the lesson-layer configuration, normally supplied
+// from brain.yml. A retire_after_streak below 1 is refused with a slog.Warn
+// and the engine keeps its default, since a zero would retire every lesson on
+// its first clean outcome.
+//
+// A lesson's own retire_after frontmatter still wins over this value.
+//
+// Like the promotion thresholds, this is assessed only while recording a
+// clean outcome, and retirement is terminal — nothing ever un-retires a
+// lesson. Raising retire_after_streak therefore has no effect on lessons the
+// old, lower value already retired. Lowering it can retire several lessons at
+// once on the next clean outcome, since tickLessons walks every lesson in the
+// domain; RecordResult.LessonsRetired reports how many.
+func WithLessons(l config.Lessons) Option {
+	return func(e *Engine) {
+		if l.RetireAfterStreak < 1 {
+			slog.Warn("trust: WithLessons requires retire_after_streak >= 1; keeping default",
+				"retire_after_streak", l.RetireAfterStreak, "default", e.lessons.RetireAfterStreak)
+			return
+		}
+		e.lessons = l
+	}
+}
+
 // WithSeenRefsCap overrides the per-domain SeenRefs FIFO cap. Tests use
 // this to exercise eviction without writing hundreds of records. Non-
 // positive values are refused with a slog.Warn; the engine keeps its
@@ -102,6 +153,8 @@ func NewEngine(_ context.Context, trustDir string, s store.Store, opts ...Option
 		lockTimeout: defaultLockTimeout,
 		seenRefsCap: SeenRefsCap,
 		syncWrites:  true,
+		thresholds:  config.Default().Trust,
+		lessons:     config.Default().Lessons,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -251,7 +304,7 @@ func (e *Engine) Record(ctx context.Context, domain string, outcome Outcome, opt
 			At: now, Kind: EventOutcome, Outcome: OutcomeClean,
 			Ref: opts.Ref, Reason: opts.Reason,
 		})
-		if threshold := promoteThreshold(d.Level); threshold > 0 && d.CleanShips >= threshold {
+		if threshold := e.promoteThreshold(d.Level); threshold > 0 && d.CleanShips >= threshold {
 			from := d.Level
 			d.Level = nextLevel(from)
 			d.CleanShips = 0
@@ -351,7 +404,7 @@ func (e *Engine) tickLessons(ctx context.Context, domain string, now time.Time) 
 		m.StreakClean++
 		threshold := m.RetireAfter
 		if threshold <= 0 {
-			threshold = LessonRetireAfter
+			threshold = e.lessons.RetireAfterStreak
 		}
 		isRetiring := m.StreakClean >= threshold
 		if isRetiring {

@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // run executes the CLI with the given args and captures stdout.
@@ -331,4 +334,54 @@ func TestIntegration_ErrorCases(t *testing.T) {
 			t.Errorf("exit %d, want 3", code)
 		}
 	})
+}
+
+// writeBrainYML drops a brain.yml into an existing .brain/ directory.
+func writeBrainYML(t *testing.T, brainDir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(brainDir, "brain.yml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("writing brain.yml: %v", err)
+	}
+}
+
+// End-to-end proof that facts.stale_after_days from brain.yml reaches the
+// write path. Without the wiring in root.go the file would carry the 30-day
+// default, or before card 4, no stale_after at all.
+func TestIntegration_FactStalenessComesFromConfig(t *testing.T) {
+	dir := setupBrainDir(t)
+	writeBrainYML(t, dir, "facts:\n  stale_after_days: 7\n")
+
+	code, out := run(t, dir, "remember", "Users table has 12M rows",
+		"--domain", "database", "--layer", "fact")
+	if code != 0 {
+		t.Fatalf("remember: exit %d, out=%s", code, out)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "facts", "*.md"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected exactly one fact file, got %v (err=%v)", matches, err)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("reading fact: %v", err)
+	}
+
+	var fm struct {
+		Created    time.Time `yaml:"created"`
+		StaleAfter time.Time `yaml:"stale_after"`
+	}
+	parts := strings.SplitN(string(body), "---", 3)
+	if len(parts) < 3 {
+		t.Fatalf("no frontmatter in %s", body)
+	}
+	if err := yaml.Unmarshal([]byte(parts[1]), &fm); err != nil {
+		t.Fatalf("parsing frontmatter: %v", err)
+	}
+
+	if fm.StaleAfter.IsZero() {
+		t.Fatal("stale_after missing — the fact will never go stale")
+	}
+	if want := fm.Created.AddDate(0, 0, 7); !fm.StaleAfter.Equal(want) {
+		t.Errorf("stale_after = %v, want created+7d = %v", fm.StaleAfter, want)
+	}
 }

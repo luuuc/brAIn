@@ -320,4 +320,3 @@ func jsonRecord(r trust.RecordResult) any {
 	}
 	return out
 }
-

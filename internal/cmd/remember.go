@@ -103,4 +103,3 @@ func resolveContent(args []string, stdin io.Reader) (string, error) {
 	}
 	return strings.TrimSpace(string(data)), nil
 }
-

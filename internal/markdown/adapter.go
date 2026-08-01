@@ -210,6 +210,19 @@ func (a *Adapter) layerDirs(layer *memory.Layer) []string {
 	}
 }
 
+// LayerDirs returns the five layer subdirectory names, in layer order.
+// Exported so `brain init` scaffolds exactly the directories this adapter
+// scans — a scaffolder with its own list would drift from the reader.
+func LayerDirs() []string {
+	return []string{
+		layerDir(memory.LayerFact),
+		layerDir(memory.LayerLesson),
+		layerDir(memory.LayerDecision),
+		layerDir(memory.LayerEffectiveness),
+		layerDir(memory.LayerCorrection),
+	}
+}
+
 var layerDirNames = map[memory.Layer]string{
 	memory.LayerFact:          "facts",
 	memory.LayerLesson:        "lessons",
