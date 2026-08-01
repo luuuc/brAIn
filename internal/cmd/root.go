@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/luuuc/brain/internal/config"
 	"github.com/luuuc/brain/internal/engine"
 	"github.com/luuuc/brain/internal/markdown"
 	"github.com/luuuc/brain/internal/trust"
@@ -22,6 +23,7 @@ const (
 	engineKey      contextKey = "engine"
 	jsonKey        contextKey = "json"
 	trustEngineKey contextKey = "trust"
+	configKey      contextKey = "config"
 	brainDirKey    contextKey = "brain_dir"
 )
 
@@ -41,10 +43,9 @@ func rootCmd() *cobra.Command {
 			ctx := context.WithValue(cmd.Context(), jsonKey, jsonFlag)
 			cmd.SetContext(ctx)
 
-			// Meta commands (help, version, completion) must work on a
-			// fresh install before any .brain/ directory exists — skip
-			// engine setup for them.
-			if isMetaCommand(cmd) {
+			// Some commands must work on a fresh install before any
+			// .brain/ directory exists — skip engine setup for them.
+			if runsWithoutBrainDir(cmd) {
 				return nil
 			}
 
@@ -52,19 +53,30 @@ func rootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			cfg, err := config.Load(brainDir)
+			if err != nil {
+				return err
+			}
+
 			s := markdown.New(brainDir)
-			eng, err := engine.NewEngine(ctx, s, engine.WithLockDir(brainDir))
+			eng, err := engine.NewEngine(ctx, s,
+				engine.WithLockDir(brainDir),
+				engine.WithFacts(cfg.Facts))
 			if err != nil {
 				return err
 			}
 			trustDir := filepath.Join(brainDir, "trust")
-			teng, err := trust.NewEngine(ctx, trustDir, s, trust.WithLockTimeoutFromEnv())
+			teng, err := trust.NewEngine(ctx, trustDir, s,
+				trust.WithLockTimeoutFromEnv(),
+				trust.WithThresholds(cfg.Trust),
+				trust.WithLessons(cfg.Lessons))
 			if err != nil {
 				return err
 			}
 			ctx = context.WithValue(ctx, engineKey, eng)
 			ctx = context.WithValue(ctx, trustEngineKey, teng)
 			ctx = context.WithValue(ctx, brainDirKey, brainDir)
+			ctx = context.WithValue(ctx, configKey, cfg)
 			cmd.SetContext(ctx)
 			return nil
 		},
@@ -97,6 +109,22 @@ func Execute() int {
 // Returns nil if the engine was not set (e.g. --help or --version).
 func engineFrom(cmd *cobra.Command) *engine.Engine {
 	v, _ := cmd.Context().Value(engineKey).(*engine.Engine)
+	return v
+}
+
+// configFrom extracts the resolved configuration from the command's context.
+// Returns the built-in defaults if config was not set, which only happens for
+// commands in runsWithoutBrainDir.
+func configFrom(cmd *cobra.Command) config.Config {
+	if v, ok := cmd.Context().Value(configKey).(config.Config); ok {
+		return v
+	}
+	return config.Default()
+}
+
+// brainDirFrom extracts the resolved .brain/ path from the command's context.
+func brainDirFrom(cmd *cobra.Command) string {
+	v, _ := cmd.Context().Value(brainDirKey).(string)
 	return v
 }
 
@@ -190,22 +218,27 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(trustCmd())
 	root.AddCommand(trackCmd())
 	root.AddCommand(versionCmd())
+	root.AddCommand(initCmd())
+	root.AddCommand(configCmd())
 }
 
-// isMetaCommand reports whether cmd (or any ancestor) is a discovery
-// command that should run without requiring a .brain/ directory. Walks
-// the parent chain so "brain help remember" and "brain completion bash"
-// are both recognized.
+// runsWithoutBrainDir reports whether cmd (or any ancestor) must work when
+// no .brain/ directory exists yet. Walks the parent chain so "brain help
+// remember" and "brain completion bash" are both recognized.
 //
-// Contract: the names "help", "version", and "completion" are reserved
-// for cobra's built-in discovery commands and the brain version
-// subcommand. Do not add a sibling subcommand with one of these names
-// for a non-meta purpose — it would bypass engine setup here and then
-// nil-deref when it called engineFrom(cmd).
-func isMetaCommand(cmd *cobra.Command) bool {
+// Two kinds of command qualify: cobra's discovery commands plus brain
+// version, which have to work on a fresh install; and init, which creates
+// the directory the others require.
+//
+// Contract: the names below are reserved. A command listed here skips engine
+// setup entirely, so it must never call engineFrom, trustEngineFrom, or
+// configFrom expecting a loaded value — all three return nil or defaults and
+// the first two will nil-deref. init obeys this by touching only the
+// filesystem.
+func runsWithoutBrainDir(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "help", "version", "completion":
+		case "help", "version", "completion", "init":
 			return true
 		}
 	}

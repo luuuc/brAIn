@@ -51,7 +51,7 @@ func TestHelp_NoBrainDir(t *testing.T) {
 }
 
 // TestMetaCommands_ParentChainBypass exercises nested meta commands to
-// confirm isMetaCommand walks the parent chain. Without the walk, these
+// confirm runsWithoutBrainDir walks the parent chain. Without the walk, these
 // would fail because their direct Name() ("remember", "bash", etc.) is
 // not in the meta list — only their ancestor is.
 func TestMetaCommands_ParentChainBypass(t *testing.T) {

@@ -48,6 +48,49 @@ type trustListJSON struct {
 	Count   int         `json:"count"`
 }
 
+// End-to-end proof that a threshold in brain.yml reaches the trust engine.
+// Without the wiring in root.go this domain would still be at ask after two
+// clean outcomes, since the default is 10.
+func TestTrustIntegration_ThresholdsComeFromConfig(t *testing.T) {
+	dir := setupBrainDir(t)
+	writeBrainYML(t, dir, "trust:\n  promote_to_notify: 2\n")
+
+	for i := 0; i < 2; i++ {
+		code, out := run(t, dir, "trust", "record", "--domain", "code", "--outcome", "clean")
+		if code != 0 {
+			t.Fatalf("record %d: exit %d, out=%s", i, code, out)
+		}
+	}
+
+	code, out := run(t, dir, "--json", "trust", "--domain", "code")
+	if code != 0 {
+		t.Fatalf("trust check: exit %d, out=%s", code, out)
+	}
+	var r trustJSON
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if r.Level != "notify" {
+		t.Errorf("level = %q, want %q — brain.yml threshold was not applied", r.Level, "notify")
+	}
+}
+
+// An invalid brain.yml must stop the command with a message naming the key,
+// not be silently ignored.
+func TestIntegration_InvalidConfigIsFatal(t *testing.T) {
+	dir := setupBrainDir(t)
+	writeBrainYML(t, dir, "trust:\n  promote_to_notifiy: 2\n")
+
+	// --json so the error lands on stdout, where the test helper can see it.
+	code, out := run(t, dir, "--json", "trust", "--domain", "code")
+	if code == 0 {
+		t.Fatalf("command succeeded with an invalid config, out=%s", out)
+	}
+	if !strings.Contains(out, "promote_to_notifiy") {
+		t.Errorf("output %q does not name the bad key", out)
+	}
+}
+
 // (a) brain trust on unknown domain shows ask/escalate.
 func TestTrustIntegration_CheckUnknownDomain(t *testing.T) {
 	dir := setupBrainDir(t)
