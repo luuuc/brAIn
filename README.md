@@ -8,7 +8,7 @@ Not a vector database. Not a knowledge graph. Not an AI memory product. The ligh
 
 ## Status
 
-Pre-alpha. The memory engine, CLI, MCP server, trust ladder, and effectiveness tracking are implemented. Configuration (`brain.yml`), the PostgreSQL adapter, and editor integrations are coming in future pitches.
+Pre-alpha. The memory engine, CLI, MCP server, trust ladder, effectiveness tracking, and configuration are implemented. The PostgreSQL adapter and editor integrations are coming in future pitches.
 
 ## Install
 
@@ -25,6 +25,36 @@ Or with Go:
 ```bash
 go install github.com/luuuc/brain/cmd/brain@latest
 ```
+
+## Quick Start
+
+```bash
+cd your-project
+brain init                    # scaffold .brain/ and a commented brain.yml
+brain remember "The users table has 12M rows" --domain database --layer fact
+brain recall --domain database
+brain config                  # what's in effect, and where each value came from
+```
+
+Commit `.brain/` to git so your memory travels with the project.
+
+## Configuration
+
+Everything works with no configuration. To change a default, uncomment the
+relevant line in `.brain/brain.yml` — `brain init` generates it with every
+setting documented at its default value:
+
+```yaml
+trust:
+  promote_to_notify: 10       # clean outcomes to leave "ask"
+facts:
+  stale_after_days: 30
+lessons:
+  retire_after_streak: 20
+```
+
+Values resolve as built-in defaults, then `brain.yml`, then `BRAIN_*`
+environment variables. `brain config` shows which layer won for each setting.
 
 ## How It Works
 
