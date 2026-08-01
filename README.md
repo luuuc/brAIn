@@ -8,7 +8,7 @@ Not a vector database. Not a knowledge graph. Not an AI memory product. The ligh
 
 ## Status
 
-Pre-alpha. The storage interface and markdown adapter are implemented. CLI and MCP server are coming in future pitches.
+Pre-alpha. The memory engine, CLI, MCP server, trust ladder, and effectiveness tracking are implemented. Configuration (`brain.yml`), the PostgreSQL adapter, and editor integrations are coming in future pitches.
 
 ## Install
 
