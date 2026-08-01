@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/luuuc/brain/internal/config"
 	"github.com/luuuc/brain/internal/memory"
 	"github.com/luuuc/brain/internal/store"
 )
@@ -47,6 +49,9 @@ type Engine struct {
 	lockDir     string
 	lockTimeout time.Duration
 
+	// facts configures the fact layer. Read-only after construction.
+	facts config.Facts
+
 	// effMu serialises the effectiveness verbs in-process (Track,
 	// EffectivenessStatsFor, loadEffectivenessScores). It does NOT
 	// guard Remember/Recall/Forget — those remain lock-free. Held
@@ -77,6 +82,21 @@ func WithClock(clock func() time.Time) Option {
 	return func(e *Engine) { e.now = clock }
 }
 
+// WithFacts overrides the fact-layer configuration, normally supplied from
+// brain.yml. A stale_after_days below 1 is refused with a slog.Warn and the
+// engine keeps its default, since a zero would stamp every fact as stale the
+// instant it is written.
+func WithFacts(f config.Facts) Option {
+	return func(e *Engine) {
+		if f.StaleAfterDays < 1 {
+			slog.Warn("engine: WithFacts requires stale_after_days >= 1; keeping default",
+				"stale_after_days", f.StaleAfterDays, "default", e.facts.StaleAfterDays)
+			return
+		}
+		e.facts = f
+	}
+}
+
 // NewEngine creates a MemoryEngine backed by the given store.
 func NewEngine(_ context.Context, s store.Store, opts ...Option) (*Engine, error) {
 	if s == nil {
@@ -86,6 +106,7 @@ func NewEngine(_ context.Context, s store.Store, opts ...Option) (*Engine, error
 		store:       s,
 		now:         time.Now,
 		lockTimeout: defaultEngineLockTimeout,
+		facts:       config.Default().Facts,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -106,6 +127,18 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 
 	if m.Layer == "" {
 		m.Layer = ClassifyLayer(m.Body)
+	}
+
+	// Facts expire; the other layers do not. Stamping happens here, on write,
+	// so the expiry a fact was created under travels with it. Deriving
+	// staleness at read time instead would retroactively expire every fact
+	// already on disk the moment stale_after_days changed.
+	//
+	// An explicit StaleAfter from the caller always wins — including one
+	// already in the past, which is how a memory can be written pre-expired.
+	if m.Layer == memory.LayerFact && m.StaleAfter == nil {
+		stale := e.facts.StaleAfter(m.Created)
+		m.StaleAfter = &stale
 	}
 
 	path, err := e.store.Write(ctx, m)
