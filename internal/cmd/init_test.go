@@ -280,3 +280,107 @@ func TestRepoGitignore_doesNotIgnoreNestedBrainYML(t *testing.T) {
 			"anchor the brain.yml rule to /brain.yml")
 	}
 }
+
+// gitAddAll stages everything in repo and returns the staged paths.
+func gitAddAll(t *testing.T, repo string) map[string]bool {
+	t.Helper()
+	add := exec.Command("git", "add", "-A")
+	add.Dir = repo
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v (%s)", err, out)
+	}
+	ls := exec.Command("git", "diff", "--cached", "--name-only")
+	ls.Dir = repo
+	out, err := ls.Output()
+	if err != nil {
+		t.Fatalf("git diff --cached: %v", err)
+	}
+	staged := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			staged[filepath.FromSlash(line)] = true
+		}
+	}
+	return staged
+}
+
+// Lock files are machine-local: flock targets holding no memory, recreated on
+// demand. Committing one ships another machine's runtime state to everyone
+// who clones, so init's .gitignore has to cover both names brAIn flocks.
+func TestInit_gitignoreCoversLockFiles(t *testing.T) {
+	repo := gitRepo(t, "")
+	target := filepath.Join(repo, ".brain")
+	if code, out := runInit(t, target); code != 0 {
+		t.Fatalf("init: exit %d, out=%s", code, out)
+	}
+
+	// The two names the engines lock: internal/engine/lock.go takes
+	// effectiveness/.lock, internal/trust/state.go takes trust/trust.yml.lock.
+	locks := []string{
+		filepath.Join("effectiveness", ".lock"),
+		filepath.Join("trust", "trust.yml.lock"),
+	}
+	for _, rel := range locks {
+		if err := os.WriteFile(filepath.Join(target, rel), nil, 0o644); err != nil {
+			t.Fatalf("writing %s: %v", rel, err)
+		}
+	}
+	fact := filepath.Join("facts", "users-table-12m-rows.md")
+	if err := os.WriteFile(filepath.Join(target, fact), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", fact, err)
+	}
+
+	staged := gitAddAll(t, repo)
+	for _, rel := range locks {
+		if staged[filepath.Join(".brain", rel)] {
+			t.Errorf("%s was staged; init's .gitignore does not cover it", rel)
+		}
+	}
+	// The ignore rule has to stop at lock files — a memory that never reaches
+	// the team is the failure this whole directory exists to prevent.
+	if !staged[filepath.Join(".brain", fact)] {
+		t.Errorf("%s was not staged; the ignore rule is too broad", fact)
+	}
+}
+
+// git carries files, not directories, so a freshly scaffolded .brain/ loses
+// every empty layer on the way through a commit. That makes init's own
+// "created facts/" a promise git silently breaks.
+func TestInit_emptyLayerDirsSurviveACommit(t *testing.T) {
+	repo := gitRepo(t, "")
+	if code, out := runInit(t, filepath.Join(repo, ".brain")); code != 0 {
+		t.Fatalf("init: exit %d, out=%s", code, out)
+	}
+
+	staged := gitAddAll(t, repo)
+	for _, name := range append(markdown.LayerDirs(), "trust") {
+		if !staged[filepath.Join(".brain", name, keepFileName)] {
+			t.Errorf("%s/ has nothing staged in it, so a clone loses the directory", name)
+		}
+	}
+}
+
+// The generated .gitignore is a file like any other init writes: a second run
+// must leave an edited one alone.
+func TestInit_doesNotOverwriteEditedGitignore(t *testing.T) {
+	target := filepath.Join(t.TempDir(), ".brain")
+	if code, out := runInit(t, target); code != 0 {
+		t.Fatalf("first init: exit %d, out=%s", code, out)
+	}
+	path := filepath.Join(target, gitignoreFileName)
+	edited := "*.lock\nscratch/\n"
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatalf("editing .gitignore: %v", err)
+	}
+
+	if code, out := runInit(t, target); code != 0 {
+		t.Fatalf("second init: exit %d, out=%s", code, out)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading .gitignore: %v", err)
+	}
+	if string(got) != edited {
+		t.Error("init overwrote an edited .gitignore")
+	}
+}

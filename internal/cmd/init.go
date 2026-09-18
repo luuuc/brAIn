@@ -21,6 +21,10 @@ commented brain.yml showing every setting at its default. Every setting in
 the generated file is commented out, so brAIn keeps using its built-in
 defaults until you deliberately uncomment one.
 
+It also writes a .gitignore that keeps machine-local lock files out of the
+shared history, and a .gitkeep in each layer directory so an empty one
+survives a commit.
+
 init is idempotent: anything that already exists is left untouched and
 reported as "exists". It never overwrites a brain.yml you have edited.
 
@@ -28,6 +32,24 @@ Without --dir, the directory is created at .brain/ in the current
 directory. Unlike every other command, init does not search parent
 directories — creating a nested .brain/ by accident is worse than an
 explicit path.`
+
+// gitignoreFileName is the ignore file written inside the memory directory.
+const gitignoreFileName = ".gitignore"
+
+// gitignoreTemplate keeps lock files out of the shared history. They are
+// flock targets holding no memory, recreated on demand by the code that
+// takes them, and a lock file from someone else's machine means nothing in
+// your clone. One "*.lock" covers both the effectiveness ".lock" and
+// "trust.yml.lock" — gitignore globs match a leading dot.
+const gitignoreTemplate = `# Machine-local lock files, recreated on demand.
+*.lock
+`
+
+// keepFileName marks an otherwise empty layer directory so git carries it.
+// Nothing depends on the directories existing — every write path creates its
+// own parent — so this is not load-bearing. It keeps the promise init's own
+// output makes: what it reports creating is what a clone gets back.
+const keepFileName = ".gitkeep"
 
 // ignoreScope says how much of the memory directory git is ignoring.
 type ignoreScope string
@@ -101,19 +123,32 @@ func scaffold(ctx context.Context, brainDir string) (initResult, error) {
 
 	dirs := append(markdown.LayerDirs(), "trust")
 	for _, name := range dirs {
-		created, err := ensureDir(filepath.Join(brainDir, name))
+		dir := filepath.Join(brainDir, name)
+		created, err := ensureDir(dir)
 		if err != nil {
+			return initResult{}, err
+		}
+		// The keep file rides along with its directory rather than getting a
+		// result line of its own: it is how "created facts/" survives a
+		// commit, not a separate thing anyone asked for.
+		if _, err := ensureFile(filepath.Join(dir, keepFileName), ""); err != nil {
 			return initResult{}, err
 		}
 		res.add(name+string(os.PathSeparator), created)
 	}
 
 	cfgPath := filepath.Join(brainDir, config.FileName)
-	created, err := ensureConfig(cfgPath)
+	createdConfig, err := ensureFile(cfgPath, config.Template())
 	if err != nil {
 		return initResult{}, err
 	}
-	res.add(config.FileName, created)
+	res.add(config.FileName, createdConfig)
+
+	createdIgnore, err := ensureFile(filepath.Join(brainDir, gitignoreFileName), gitignoreTemplate)
+	if err != nil {
+		return initResult{}, err
+	}
+	res.add(gitignoreFileName, createdIgnore)
 
 	res.Ignored = gitIgnoring(ctx, brainDir, cfgPath)
 
@@ -167,10 +202,11 @@ func ensureDir(dir string) (bool, error) {
 	return true, nil
 }
 
-// ensureConfig writes the commented template only if no config exists.
-// O_EXCL makes the "don't clobber" check and the write one atomic step, so
-// two concurrent inits cannot both decide the file is missing.
-func ensureConfig(path string) (bool, error) {
+// ensureFile writes content to path only if nothing is there already,
+// reporting whether it wrote. O_EXCL makes the "don't clobber" check and the
+// write one atomic step, so two concurrent inits cannot both decide the file
+// is missing.
+func ensureFile(path, content string) (bool, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if os.IsExist(err) {
 		return false, nil
@@ -180,7 +216,7 @@ func ensureConfig(path string) (bool, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	if _, err := f.WriteString(config.Template()); err != nil {
+	if _, err := f.WriteString(content); err != nil {
 		return false, fmt.Errorf("writing %s: %w", path, err)
 	}
 	// Flush before returning. A half-written brain.yml truncated mid-comment
