@@ -348,7 +348,11 @@ func renderSessionStart(memories []memory.Memory) string {
 	b.WriteString(sessionStartHeader)
 	for _, m := range memories {
 		fmt.Fprintf(&b, "[%s] %s\n", m.Layer, m.Title())
-		fmt.Fprintf(&b, "  domain: %s  path: %s\n\n", m.Domain, m.Path)
+		fmt.Fprintf(&b, "  domain: %s  path: %s\n", m.Domain, m.Path)
+		if m.RevisitIf != "" {
+			fmt.Fprintf(&b, "  revisit if: %s\n", m.RevisitIf)
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString(sessionStartFooter)
 	return b.String()

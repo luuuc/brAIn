@@ -17,12 +17,13 @@ type RecallResult struct {
 
 // RecallMemory is a single memory in recall output.
 type RecallMemory struct {
-	Path   string   `json:"path"`
-	Layer  string   `json:"layer"`
-	Domain string   `json:"domain"`
-	Title  string   `json:"title"`
-	Body   string   `json:"body"`
-	Tags   []string `json:"tags,omitempty"`
+	Path      string   `json:"path"`
+	Layer     string   `json:"layer"`
+	Domain    string   `json:"domain"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags,omitempty"`
+	RevisitIf string   `json:"revisit_if,omitempty"`
 }
 
 // ListResult is the JSON output of brain list.
