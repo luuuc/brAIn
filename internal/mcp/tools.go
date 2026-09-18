@@ -45,6 +45,21 @@ var brainTools = []toolDefinition{
 					Type:        "string",
 					Description: "Comma-separated tags for the memory.",
 				},
+				"revisit_if": {
+					Type: "string",
+					Description: "The condition that would make this memory worth reconsidering (e.g. \"GraphQL adoption\"). " +
+						"Recorded and surfaced on recall; nothing evaluates it, so a human or tool decides when it has been met.",
+				},
+				"supersedes": {
+					Type: "string",
+					Description: "Path of the memory this one replaces (e.g. \"decisions/old-choice.md\"), which is retired. " +
+						"A path that does not resolve is an error and nothing is stored.",
+				},
+				"persona": {
+					Type: "string",
+					Description: "The persona this memory came from, as a lower-kebab-case slug (e.g. \"kent-beck\"). " +
+						"Matching a persona tracked by brain_track ranks this memory by that persona's acceptance rate in its domain.",
+				},
 			},
 			Required: []string{"content", "domain"},
 		},
@@ -175,7 +190,7 @@ var brainTools = []toolDefinition{
 	},
 	{
 		Name:        "brain_track",
-		Description: "Record a Council persona outcome (accepted/overridden) for a domain, or view current stats. Effectiveness is a rolling 90-day acceptance rate; the returned stats feed recall ranking when UseEffectiveness is set.",
+		Description: "Record a Council persona outcome (accepted/overridden) for a domain, or view current stats. Effectiveness is a rolling 90-day acceptance rate; the returned stats feed recall ranking on any domain-scoped recall.",
 		InputSchema: toolSchema{
 			Type: "object",
 			Properties: map[string]schemaProperty{
