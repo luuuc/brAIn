@@ -30,18 +30,8 @@ func (l Layer) Valid() bool {
 type Source string
 
 const (
-	SourceHuman   Source = "human"
-	SourceTool    Source = "tool"
-	SourceRefresh Source = "refresh"
-)
-
-// Confidence represents the certainty level of a memory.
-type Confidence string
-
-const (
-	ConfidenceHigh   Confidence = "high"
-	ConfidenceMedium Confidence = "medium"
-	ConfidenceLow    Confidence = "low"
+	SourceHuman Source = "human"
+	SourceTool  Source = "tool"
 )
 
 // Memory is the unified type for all five layers. Layer-specific fields are
@@ -59,20 +49,19 @@ type Memory struct {
 	Created time.Time `yaml:"created"`
 
 	// Optional common fields
-	Updated       *time.Time  `yaml:"updated,omitempty"`
-	Source        Source      `yaml:"source,omitempty"`
-	Confidence    Confidence  `yaml:"confidence,omitempty"`
-	Tags          []string    `yaml:"tags,omitempty,flow"`
-	RevisitIf     string      `yaml:"revisit_if,omitempty"`
-	Supersedes    string      `yaml:"supersedes,omitempty"`
-	Retired       bool        `yaml:"retired,omitempty"`
-	RetiredReason string      `yaml:"retired_reason,omitempty"`
+	Updated       *time.Time `yaml:"updated,omitempty"`
+	Source        Source     `yaml:"source,omitempty"`
+	Tags          []string   `yaml:"tags,omitempty,flow"`
+	RevisitIf     string     `yaml:"revisit_if,omitempty"`
+	Supersedes    string     `yaml:"supersedes,omitempty"`
+	Retired       bool       `yaml:"retired,omitempty"`
+	RetiredReason string     `yaml:"retired_reason,omitempty"`
 
 	// Layer-specific: facts
 	StaleAfter *time.Time `yaml:"stale_after,omitempty"`
 
 	// Layer-specific: lessons
-	StreakClean  int `yaml:"streak_clean,omitempty"`
+	StreakClean int `yaml:"streak_clean,omitempty"`
 	RetireAfter int `yaml:"retire_after,omitempty"`
 
 	// Layer-specific: effectiveness
