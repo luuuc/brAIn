@@ -70,6 +70,18 @@ func (s *Server) handleRemember(ctx context.Context, args map[string]any) toolCa
 		m.Layer = l
 	}
 
+	if persona, ok := args["persona"].(string); ok && persona != "" {
+		m.Persona = persona
+	}
+
+	if revisitIf, ok := args["revisit_if"].(string); ok && revisitIf != "" {
+		m.RevisitIf = revisitIf
+	}
+
+	if supersedes, ok := args["supersedes"].(string); ok && supersedes != "" {
+		m.Supersedes = supersedes
+	}
+
 	if tags, ok := args["tags"].(string); ok && tags != "" {
 		for _, t := range strings.Split(tags, ",") {
 			t = strings.TrimSpace(t)
@@ -126,6 +138,9 @@ func (s *Server) handleRecall(ctx context.Context, args map[string]any) toolCall
 			"domain": m.Domain,
 			"title":  m.Title(),
 			"body":   m.Body,
+		}
+		if m.RevisitIf != "" {
+			item["revisit_if"] = m.RevisitIf
 		}
 		if len(m.Tags) > 0 {
 			item["tags"] = m.Tags

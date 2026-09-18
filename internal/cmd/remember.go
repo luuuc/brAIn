@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,14 +10,18 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/luuuc/brain/internal/engine"
 	"github.com/luuuc/brain/internal/memory"
 )
 
 func rememberCmd() *cobra.Command {
 	var (
-		domain string
-		layer  string
-		tags   []string
+		domain     string
+		layer      string
+		tags       []string
+		persona    string
+		revisitIf  string
+		supersedes string
 	)
 
 	cmd := &cobra.Command{
@@ -37,11 +42,14 @@ func rememberCmd() *cobra.Command {
 			}
 
 			m := memory.Memory{
-				Domain:  domain,
-				Body:    content,
-				Created: time.Now(),
-				Source:  memory.SourceHuman,
-				Tags:    tags,
+				Domain:     domain,
+				Body:       content,
+				Created:    time.Now(),
+				Source:     memory.SourceHuman,
+				Tags:       tags,
+				Persona:    persona,
+				RevisitIf:  revisitIf,
+				Supersedes: supersedes,
 			}
 
 			if layer != "" {
@@ -55,6 +63,9 @@ func rememberCmd() *cobra.Command {
 			eng := engineFrom(cmd)
 			result, err := eng.Remember(cmd.Context(), m)
 			if err != nil {
+				if errors.Is(err, engine.ErrInvalidArgs) {
+					return &ExitError{Code: 3, Err: err}
+				}
 				return err
 			}
 
@@ -79,6 +90,12 @@ func rememberCmd() *cobra.Command {
 	cmd.Flags().StringVar(&domain, "domain", "", "memory domain (required)")
 	cmd.Flags().StringVar(&layer, "layer", "", "memory layer (fact, lesson, decision, effectiveness, correction)")
 	cmd.Flags().StringSliceVar(&tags, "tags", nil, "comma-separated tags")
+	cmd.Flags().StringVar(&supersedes, "supersedes", "",
+		"path of the memory this one replaces (e.g. decisions/old-choice.md); it is retired")
+	cmd.Flags().StringVar(&revisitIf, "revisit-if", "",
+		"the condition that would make this memory worth reconsidering (e.g. \"GraphQL adoption\")")
+	cmd.Flags().StringVar(&persona, "persona", "",
+		"persona this memory came from (e.g. kent-beck); ranks it by that persona's acceptance rate")
 	return cmd
 }
 

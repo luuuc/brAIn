@@ -459,13 +459,12 @@ func (e *Engine) Override(ctx context.Context, domain, reason string) (Decision,
 	}
 
 	corr := memory.Memory{
-		Layer:      memory.LayerCorrection,
-		Domain:     domain,
-		Created:    now,
-		Source:     memory.SourceHuman,
-		Confidence: memory.ConfidenceHigh,
-		Immutable:  true,
-		Body:       reason,
+		Layer:     memory.LayerCorrection,
+		Domain:    domain,
+		Created:   now,
+		Source:    memory.SourceHuman,
+		Immutable: true,
+		Body:      reason,
 	}
 	if _, err := e.store.Write(ctx, corr); err != nil {
 		return e.decisionFor(domain, d, false), fmt.Errorf("trust: override: state committed but correction write failed: %w", err)

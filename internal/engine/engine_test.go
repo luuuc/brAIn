@@ -286,26 +286,32 @@ func TestSupersession(t *testing.T) {
 	}
 }
 
-func TestSupersession_MissingTarget(t *testing.T) {
+// Superseding something that is not there is rejected, and nothing is
+// written. The previous contract wrote the memory and warned, which left the
+// old decision live and the new one claiming to have replaced it — two
+// active decisions contradicting each other over a typo.
+func TestSupersession_MissingTargetIsRejected(t *testing.T) {
 	e, ctx := setup(t)
-	now := time.Now()
 
-	// Supersede a non-existent file — should succeed with a warning.
-	res, err := e.Remember(ctx, memory.Memory{
+	_, err := e.Remember(ctx, memory.Memory{
 		Layer:      memory.LayerFact,
 		Domain:     "db",
-		Created:    now,
+		Created:    time.Now(),
 		Body:       "# New fact",
 		Supersedes: "facts/nonexistent.md",
 	})
+	if !errors.Is(err, engine.ErrInvalidArgs) {
+		t.Fatalf("err = %v, want ErrInvalidArgs", err)
+	}
+
+	// And the rejection must be total: no memory on disk claiming a
+	// supersession that never happened.
+	all, err := e.Recall(ctx, engine.RecallOptions{Domain: "db", Limit: 10})
 	if err != nil {
-		t.Fatalf("Remember should succeed even when superseded target is missing: %v", err)
+		t.Fatalf("Recall: %v", err)
 	}
-	if res.Path == "" {
-		t.Fatal("expected non-empty path")
-	}
-	if len(res.Warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d", len(res.Warnings))
+	if len(all) != 0 {
+		t.Errorf("rejected remember still wrote %d memories", len(all))
 	}
 }
 
@@ -697,27 +703,29 @@ func TestRecall_EffectivenessAdjustsWithinLayer(t *testing.T) {
 	}
 
 	layer := memory.LayerLesson
-	// Without the flag: recency wins → hickey first.
-	plain, err := e.Recall(ctx, engine.RecallOptions{Domain: "testing", Layer: &layer, Limit: 10})
+
+	// A domain-scoped recall ranks on effectiveness with nothing asked for:
+	// beck's acceptance rate beats hickey's recency.
+	scoped, err := e.Recall(ctx, engine.RecallOptions{Domain: "testing", Layer: &layer, Limit: 10})
 	if err != nil {
-		t.Fatalf("Recall plain: %v", err)
+		t.Fatalf("Recall scoped: %v", err)
 	}
-	if len(plain) != 2 {
-		t.Fatalf("plain got %d lessons, want 2", len(plain))
+	if len(scoped) != 2 {
+		t.Fatalf("scoped got %d lessons, want 2", len(scoped))
 	}
-	if plain[0].Persona != "rich-hickey" {
-		t.Errorf("plain recall: first lesson = %q, want rich-hickey (newer)", plain[0].Persona)
+	if scoped[0].Persona != "kent-beck" {
+		t.Errorf("scoped recall: first lesson = %q, want kent-beck (higher acceptance rate)", scoped[0].Persona)
 	}
 
-	// With the flag: beck's higher acceptance rate overrides recency.
-	adj, err := e.Recall(ctx, engine.RecallOptions{
-		Domain: "testing", Layer: &layer, Limit: 10, UseEffectiveness: true,
-	})
+	// Scores are per-domain, so a recall that names no domain has none to
+	// load and falls back to recency. This is the boundary the session-start
+	// hook sits on: it recalls across every domain and pays for no lookup.
+	all, err := e.Recall(ctx, engine.RecallOptions{Layer: &layer, Limit: 10})
 	if err != nil {
-		t.Fatalf("Recall adjusted: %v", err)
+		t.Fatalf("Recall all: %v", err)
 	}
-	if adj[0].Persona != "kent-beck" {
-		t.Errorf("adjusted recall: first lesson = %q, want kent-beck (higher rate)", adj[0].Persona)
+	if all[0].Persona != "rich-hickey" {
+		t.Errorf("domain-less recall: first lesson = %q, want rich-hickey (newer)", all[0].Persona)
 	}
 }
 
@@ -725,7 +733,7 @@ func TestRecall_EffectivenessNoOpWithoutData(t *testing.T) {
 	e, ctx := setup(t)
 
 	// Memory exists but no Track calls → no effectiveness data for the
-	// domain. The flag must be a no-op, not an error.
+	// domain. Loading must be a no-op, not an error.
 	mustRemember(t, e, ctx, memory.Memory{
 		Layer:   memory.LayerLesson,
 		Domain:  "frontend",
@@ -735,7 +743,7 @@ func TestRecall_EffectivenessNoOpWithoutData(t *testing.T) {
 	})
 
 	results, err := e.Recall(ctx, engine.RecallOptions{
-		Domain: "frontend", UseEffectiveness: true, Limit: 10,
+		Domain: "frontend", Limit: 10,
 	})
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
@@ -800,5 +808,37 @@ func TestRecall_FullPipeline(t *testing.T) {
 		if results[i].Layer != want {
 			t.Errorf("results[%d].Layer = %q, want %q", i, results[i].Layer, want)
 		}
+	}
+}
+
+// A persona is the key effectiveness scores are looked up by. One that is
+// not a slug would store fine and then never match anything, which is a
+// silent failure rather than a loud one.
+func TestRemember_RejectsNonSlugPersona(t *testing.T) {
+	e, ctx := setup(t)
+
+	_, err := e.Remember(ctx, memory.Memory{
+		Layer:   memory.LayerLesson,
+		Domain:  "testing",
+		Persona: "Kent Beck",
+		Created: time.Now(),
+		Body:    "# a lesson",
+	})
+	if !errors.Is(err, engine.ErrInvalidArgs) {
+		t.Errorf("err = %v, want ErrInvalidArgs", err)
+	}
+}
+
+// An empty persona is the normal case and must stay allowed.
+func TestRemember_AllowsEmptyPersona(t *testing.T) {
+	e, ctx := setup(t)
+
+	if _, err := e.Remember(ctx, memory.Memory{
+		Layer:   memory.LayerFact,
+		Domain:  "testing",
+		Created: time.Now(),
+		Body:    "# a fact with no persona",
+	}); err != nil {
+		t.Errorf("Remember: %v", err)
 	}
 }

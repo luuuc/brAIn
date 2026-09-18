@@ -167,3 +167,62 @@ func TestTrackIntegration_ViewTextHasRate(t *testing.T) {
 		t.Errorf("view text missing rate:\n%s", out)
 	}
 }
+
+// The loop 01-06 built, driven entirely through the CLI: record outcomes for
+// two personas, attribute a memory to each, and watch recall rank the
+// well-regarded persona's memory above the newer one.
+//
+// Before --persona existed this was provable only from Go, because nothing
+// any user could run put a persona on a lesson. Effectiveness ranking was
+// switched on and had nothing to score.
+func TestRemember_personaMakesEffectivenessRankingReachable(t *testing.T) {
+	target := setupBrainDir(t)
+
+	// kent-beck is accepted every time; rich-hickey is overridden every time.
+	for range 5 {
+		if code, out := run(t, target, "track", "--domain", "testing",
+			"--persona", "kent-beck", "--outcome", "accepted"); code != 0 {
+			t.Fatalf("track beck: exit %d, out=%s", code, out)
+		}
+		if code, out := run(t, target, "track", "--domain", "testing",
+			"--persona", "rich-hickey", "--outcome", "overridden"); code != 0 {
+			t.Fatalf("track hickey: exit %d, out=%s", code, out)
+		}
+	}
+
+	// Beck's lesson is written first, so hickey's is newer and would lead on
+	// recency alone.
+	if code, out := run(t, target, "remember", "Check for concurrent writes",
+		"--domain", "testing", "--layer", "lesson", "--persona", "kent-beck"); code != 0 {
+		t.Fatalf("remember beck: exit %d, out=%s", code, out)
+	}
+	if code, out := run(t, target, "remember", "Prefer values over places",
+		"--domain", "testing", "--layer", "lesson", "--persona", "rich-hickey"); code != 0 {
+		t.Fatalf("remember hickey: exit %d, out=%s", code, out)
+	}
+
+	code, out := run(t, target, "recall", "--domain", "testing", "--layer", "lesson")
+	if code != 0 {
+		t.Fatalf("recall: exit %d, out=%s", code, out)
+	}
+	beck := strings.Index(out, "Check for concurrent writes")
+	hickey := strings.Index(out, "Prefer values over places")
+	if beck < 0 || hickey < 0 {
+		t.Fatalf("both lessons should be recalled:\n%s", out)
+	}
+	if beck > hickey {
+		t.Errorf("the overridden persona's newer lesson outranked the accepted one:\n%s", out)
+	}
+}
+
+// A persona that is not a slug would be stored and then never match a score,
+// failing silently. It is rejected instead.
+func TestRemember_rejectsAPersonaThatCouldNeverScore(t *testing.T) {
+	target := setupBrainDir(t)
+
+	code, _ := run(t, target, "remember", "A lesson", "--domain", "testing",
+		"--layer", "lesson", "--persona", "Kent Beck")
+	if code != 3 {
+		t.Errorf("exit %d, want 3 (invalid input)", code)
+	}
+}

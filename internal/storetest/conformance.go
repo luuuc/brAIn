@@ -21,13 +21,12 @@ func TestStore(t *testing.T, newStore func(t *testing.T) store.Store) {
 		s := newStore(t)
 
 		m := memory.Memory{
-			Layer:      memory.LayerFact,
-			Domain:     "database",
-			Created:    time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC),
-			Source:     memory.SourceHuman,
-			Confidence: memory.ConfidenceHigh,
-			Tags:       []string{"schema", "performance"},
-			Body:       "# Users table\n\nThe users table has 12M rows.\n",
+			Layer:   memory.LayerFact,
+			Domain:  "database",
+			Created: time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC),
+			Source:  memory.SourceHuman,
+			Tags:    []string{"schema", "performance"},
+			Body:    "# Users table\n\nThe users table has 12M rows.\n",
 		}
 
 		path, err := s.Write(ctx, m)
@@ -54,9 +53,6 @@ func TestStore(t *testing.T, newStore func(t *testing.T) store.Store) {
 		}
 		if got.Source != m.Source {
 			t.Errorf("Source = %q, want %q", got.Source, m.Source)
-		}
-		if got.Confidence != m.Confidence {
-			t.Errorf("Confidence = %q, want %q", got.Confidence, m.Confidence)
 		}
 		if len(got.Tags) != len(m.Tags) {
 			t.Errorf("Tags = %v, want %v", got.Tags, m.Tags)

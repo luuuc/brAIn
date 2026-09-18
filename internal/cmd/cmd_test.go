@@ -385,3 +385,166 @@ func TestIntegration_FactStalenessComesFromConfig(t *testing.T) {
 		t.Errorf("stale_after = %v, want created+7d = %v", fm.StaleAfter, want)
 	}
 }
+
+// A decision is only reopenable if the reader can see what would reopen it.
+// The rules brAIn ships tell a model to "reopen one only when its revisit
+// condition has actually been met", so the condition has to reach every path
+// a consumer reads: the frontmatter, the JSON, and the text.
+func TestRemember_revisitIfReachesEveryReader(t *testing.T) {
+	dir := setupBrainDir(t)
+
+	if code, out := run(t, dir, "remember", "camelCase for API responses",
+		"--domain", "api", "--layer", "decision", "--revisit-if", "GraphQL adoption"); code != 0 {
+		t.Fatalf("remember: exit %d, out=%s", code, out)
+	}
+
+	t.Run("frontmatter", func(t *testing.T) {
+		matches, err := filepath.Glob(filepath.Join(dir, "decisions", "*.md"))
+		if err != nil || len(matches) != 1 {
+			t.Fatalf("want one decision file, got %v (err=%v)", matches, err)
+		}
+		raw, err := os.ReadFile(matches[0])
+		if err != nil {
+			t.Fatalf("reading decision: %v", err)
+		}
+		if !strings.Contains(string(raw), "revisit_if: GraphQL adoption") {
+			t.Errorf("revisit_if missing from frontmatter:\n%s", raw)
+		}
+	})
+
+	t.Run("recall --json", func(t *testing.T) {
+		code, out := run(t, dir, "--json", "recall", "--domain", "api")
+		if code != 0 {
+			t.Fatalf("recall: exit %d, out=%s", code, out)
+		}
+		var res RecallResult
+		if err := json.Unmarshal([]byte(out), &res); err != nil {
+			t.Fatalf("unmarshal: %v (out=%s)", err, out)
+		}
+		if len(res.Memories) != 1 || res.Memories[0].RevisitIf != "GraphQL adoption" {
+			t.Errorf("revisit_if missing from JSON: %+v", res.Memories)
+		}
+	})
+
+	t.Run("recall text", func(t *testing.T) {
+		code, out := run(t, dir, "recall", "--domain", "api")
+		if code != 0 {
+			t.Fatalf("recall: exit %d, out=%s", code, out)
+		}
+		if !strings.Contains(out, "revisit if: GraphQL adoption") {
+			t.Errorf("revisit_if missing from text output:\n%s", out)
+		}
+	})
+
+	t.Run("session-start injection", func(t *testing.T) {
+		code, out := run(t, dir, "hooks", "session-start")
+		if code != 0 {
+			t.Fatalf("session-start: exit %d, out=%s", code, out)
+		}
+		if !strings.Contains(out, "revisit if: GraphQL adoption") {
+			t.Errorf("revisit_if missing from the injected context:\n%s", out)
+		}
+	})
+}
+
+// A memory with no revisit condition must not grow an empty line for it.
+func TestRecall_noRevisitLineWhenUnset(t *testing.T) {
+	dir := setupBrainDir(t)
+
+	if code, out := run(t, dir, "remember", "The users table has 12M rows",
+		"--domain", "database", "--layer", "fact"); code != 0 {
+		t.Fatalf("remember: exit %d, out=%s", code, out)
+	}
+	code, out := run(t, dir, "recall", "--domain", "database")
+	if code != 0 {
+		t.Fatalf("recall: exit %d, out=%s", code, out)
+	}
+	if strings.Contains(out, "revisit if:") {
+		t.Errorf("printed an empty revisit line:\n%s", out)
+	}
+}
+
+// Superseding is how one decision replaces another. The replaced memory is
+// retired, so recall stops surfacing it, and the replacement stands alone.
+func TestRemember_supersedesRetiresTheOldDecision(t *testing.T) {
+	dir := setupBrainDir(t)
+
+	code, out := run(t, dir, "--json", "remember", "snake_case for API responses",
+		"--domain", "api", "--layer", "decision")
+	if code != 0 {
+		t.Fatalf("remember old: exit %d, out=%s", code, out)
+	}
+	var first RememberResult
+	if err := json.Unmarshal([]byte(out), &first); err != nil {
+		t.Fatalf("unmarshal: %v (out=%s)", err, out)
+	}
+
+	if code, out := run(t, dir, "remember", "camelCase for API responses",
+		"--domain", "api", "--layer", "decision", "--supersedes", first.Path); code != 0 {
+		t.Fatalf("remember new: exit %d, out=%s", code, out)
+	}
+
+	code, out = run(t, dir, "recall", "--domain", "api")
+	if code != 0 {
+		t.Fatalf("recall: exit %d, out=%s", code, out)
+	}
+	if !strings.Contains(out, "camelCase") {
+		t.Errorf("replacement missing from recall:\n%s", out)
+	}
+	if strings.Contains(out, "snake_case") {
+		t.Errorf("superseded decision still surfaces in recall:\n%s", out)
+	}
+}
+
+// A path that does not resolve is almost always a typo, and a typo must not
+// buy two live decisions that contradict each other.
+func TestRemember_supersedesRejectsAPathThatIsNotThere(t *testing.T) {
+	dir := setupBrainDir(t)
+
+	code, _ := run(t, dir, "remember", "camelCase for API responses",
+		"--domain", "api", "--layer", "decision", "--supersedes", "decisions/typo.md")
+	if code != 3 {
+		t.Errorf("exit %d, want 3 (invalid input)", code)
+	}
+
+	// Nothing may have been written on the way to that rejection.
+	listCode, listOut := run(t, dir, "list")
+	if listCode != 0 {
+		t.Fatalf("list: exit %d", listCode)
+	}
+	if !strings.Contains(listOut, "0 memories") {
+		t.Errorf("a rejected remember left something behind:\n%s", listOut)
+	}
+}
+
+// confidence was removed from the model. Files already carrying it — every
+// correction brain trust override ever wrote — must keep loading, because
+// frontmatter parsing ignores keys it does not know. That leniency is what
+// made the removal free, and it is worth a test rather than an assumption.
+func TestRemovedFields_doNotBreakExistingFiles(t *testing.T) {
+	dir := setupBrainDir(t)
+	if err := os.MkdirAll(filepath.Join(dir, "corrections"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	legacy := "---\n" +
+		"layer: correction\n" +
+		"domain: testing\n" +
+		"created: 2026-04-01T00:00:00Z\n" +
+		"source: human\n" +
+		"confidence: high\n" +
+		"immutable: true\n" +
+		"---\n" +
+		"Stop flagging nullable email columns\n"
+	if err := os.WriteFile(filepath.Join(dir, "corrections", "legacy.md"), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("writing legacy correction: %v", err)
+	}
+
+	code, out := run(t, dir, "recall", "--domain", "testing")
+	if code != 0 {
+		t.Fatalf("recall: exit %d, out=%s", code, out)
+	}
+	if !strings.Contains(out, "Stop flagging nullable email columns") {
+		t.Errorf("a file carrying the removed confidence field no longer loads:\n%s", out)
+	}
+}

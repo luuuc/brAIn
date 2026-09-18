@@ -50,12 +50,13 @@ func recallCmd() *cobra.Command {
 			jr := RecallResult{}
 			for _, m := range memories {
 				jr.Memories = append(jr.Memories, RecallMemory{
-					Path:   m.Path,
-					Layer:  string(m.Layer),
-					Domain: m.Domain,
-					Title:  m.Title(),
-					Body:   m.Body,
-					Tags:   m.Tags,
+					Path:      m.Path,
+					Layer:     string(m.Layer),
+					Domain:    m.Domain,
+					Title:     m.Title(),
+					Body:      m.Body,
+					Tags:      m.Tags,
+					RevisitIf: m.RevisitIf,
 				})
 			}
 
@@ -67,6 +68,13 @@ func recallCmd() *cobra.Command {
 					}
 					fmt.Fprintf(&sb, "[%s] %s\n", m.Layer, m.Title())
 					fmt.Fprintf(&sb, "  domain: %s  path: %s\n", m.Domain, m.Path)
+					// A settled decision is only reopenable if the reader can
+					// see what would reopen it. Printing the condition only in
+					// --json would hide it from every model that reads the
+					// text, which is the path the rules point at.
+					if m.RevisitIf != "" {
+						fmt.Fprintf(&sb, "  revisit if: %s\n", m.RevisitIf)
+					}
 				}
 				return sb.String()
 			})

@@ -469,3 +469,80 @@ func containsText(result toolCallResult, substr string) bool {
 	}
 	return strings.Contains(result.Content[0].Text, substr)
 }
+
+// An AI tool must have the same reach as a shell: a memory it attributes to
+// a persona ranks by that persona's acceptance rate, exactly as one written
+// with "brain remember --persona" does.
+func TestHandler_Remember_PassesPersonaThrough(t *testing.T) {
+	var got string
+	srv := newTestServer(&stubEngine{
+		rememberFn: func(_ context.Context, m memory.Memory) (engine.RememberResult, error) {
+			got = m.Persona
+			return engine.RememberResult{Path: "lessons/x.md", Layer: memory.LayerLesson}, nil
+		},
+	})
+
+	res := srv.handleRemember(context.Background(), map[string]any{
+		"content": "Check for concurrent writes",
+		"domain":  "payments",
+		"persona": "kent-beck",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res)
+	}
+	if got != "kent-beck" {
+		t.Errorf("persona reached the engine as %q, want kent-beck", got)
+	}
+}
+
+// An AI tool writing through MCP must reach the same fields a shell does.
+// Anything it cannot set is a field that, for it, does not exist.
+func TestHandler_Remember_PassesRevisitIfAndSupersedes(t *testing.T) {
+	var got memory.Memory
+	srv := newTestServer(&stubEngine{
+		rememberFn: func(_ context.Context, m memory.Memory) (engine.RememberResult, error) {
+			got = m
+			return engine.RememberResult{Path: "decisions/x.md", Layer: memory.LayerDecision}, nil
+		},
+	})
+
+	res := srv.handleRemember(context.Background(), map[string]any{
+		"content":    "camelCase for API responses",
+		"domain":     "api",
+		"layer":      "decision",
+		"revisit_if": "GraphQL adoption",
+		"supersedes": "decisions/snake-case.md",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res)
+	}
+	if got.RevisitIf != "GraphQL adoption" {
+		t.Errorf("revisit_if reached the engine as %q", got.RevisitIf)
+	}
+	if got.Supersedes != "decisions/snake-case.md" {
+		t.Errorf("supersedes reached the engine as %q", got.Supersedes)
+	}
+}
+
+// And must be able to read back what it wrote.
+func TestHandler_Recall_ReturnsRevisitIf(t *testing.T) {
+	srv := newTestServer(&stubEngine{
+		recallFn: func(context.Context, engine.RecallOptions) ([]memory.Memory, error) {
+			return []memory.Memory{{
+				Layer:     memory.LayerDecision,
+				Domain:    "api",
+				Path:      "decisions/camelcase.md",
+				Body:      "camelCase for API responses",
+				RevisitIf: "GraphQL adoption",
+			}}, nil
+		},
+	})
+
+	res := srv.handleRecall(context.Background(), map[string]any{"domain": "api"})
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res)
+	}
+	if !strings.Contains(res.Content[0].Text, "GraphQL adoption") {
+		t.Errorf("revisit_if missing from recall payload: %s", res.Content[0].Text)
+	}
+}
