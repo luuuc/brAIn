@@ -124,7 +124,7 @@ func (s *Server) handleRecall(ctx context.Context, args map[string]any) toolCall
 			"path":   m.Path,
 			"layer":  string(m.Layer),
 			"domain": m.Domain,
-			"title":  firstLine(m.Body),
+			"title":  m.Title(),
 			"body":   m.Body,
 		}
 		if len(m.Tags) > 0 {
@@ -229,12 +229,3 @@ func jsonResult(v any) toolCallResult {
 		Content: []toolContent{{Type: "text", Text: string(data)}},
 	}
 }
-
-// firstLine returns the first line of s.
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
-}
-

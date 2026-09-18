@@ -53,7 +53,7 @@ func recallCmd() *cobra.Command {
 					Path:   m.Path,
 					Layer:  string(m.Layer),
 					Domain: m.Domain,
-					Title:  firstLine(m.Body),
+					Title:  m.Title(),
 					Body:   m.Body,
 					Tags:   m.Tags,
 				})
@@ -65,7 +65,7 @@ func recallCmd() *cobra.Command {
 					if i > 0 {
 						sb.WriteString("\n")
 					}
-					fmt.Fprintf(&sb, "[%s] %s\n", m.Layer, firstLine(m.Body))
+					fmt.Fprintf(&sb, "[%s] %s\n", m.Layer, m.Title())
 					fmt.Fprintf(&sb, "  domain: %s  path: %s\n", m.Domain, m.Path)
 				}
 				return sb.String()
@@ -78,11 +78,4 @@ func recallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&layer, "layer", "", "filter by layer")
 	cmd.Flags().IntVar(&limit, "limit", 5, "max results")
 	return cmd
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
