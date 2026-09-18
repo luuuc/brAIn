@@ -8,7 +8,7 @@ Not a vector database. Not a knowledge graph. Not an AI memory product. The ligh
 
 ## Status
 
-Pre-alpha. The memory engine, CLI, MCP server, trust ladder, effectiveness tracking, and configuration are implemented. The PostgreSQL adapter and editor integrations are coming in future pitches.
+Pre-alpha. The memory engine, CLI, MCP server, trust ladder, effectiveness tracking, configuration, and editor integration are implemented. The PostgreSQL adapter is coming in a future pitch.
 
 ## Install
 
@@ -37,6 +37,34 @@ brain config                  # what's in effect, and where each value came from
 ```
 
 Commit `.brain/` to git so your memory travels with the project.
+
+## Editor Setup
+
+Everything above is something you have to remember to run, which is the one
+thing memory should not depend on. To make the loop run by itself:
+
+```bash
+brain hooks                   # Claude Code: settings.json block, then CLAUDE.md rules
+brain hooks --tool cursor     # Cursor: .cursor/rules/brain.mdc
+```
+
+brAIn prints; you paste. It never edits your settings, your `CLAUDE.md`, or
+anything else you own — merging into a file you have already customised is
+not a memory tool's job.
+
+In Claude Code the hook loads your highest-authority memories into every new
+session, and again after a `/clear` or a compaction. Compaction is the one
+that matters most: it is where a correction gets summarised away and the
+model quietly loses the thing it was told not to do.
+
+The rules cover what no hook can. A hook cannot know which domain you are
+touching, so per-domain recall, acting on the trust level, and restraint
+about what gets written down are all instructions to the model rather than
+automation.
+
+Memories are committed, so they travel with the repository. The hook
+configuration is per-developer: everyone who clones runs `brain hooks` once
+on their own machine.
 
 ## Configuration
 

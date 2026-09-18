@@ -1,6 +1,9 @@
 package memory
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Layer identifies which of the five memory layers a memory belongs to.
 type Layer string
@@ -82,4 +85,26 @@ type Memory struct {
 
 	// Body is the markdown content below the frontmatter.
 	Body string `yaml:"-"`
+}
+
+// Title returns a one-line label for the memory, for display.
+//
+// Most layers use the first line of the body, which is how the memory was
+// written and therefore the best summary of it. Effectiveness is the
+// exception: its body opens with the "## Outcomes" list, so its first line
+// is a markdown heading that says nothing about the memory. Its identity is
+// structured instead — a persona and a domain — so the title is built from
+// those rather than parsed back out of prose.
+//
+// Deriving here rather than in each caller keeps recall, the MCP tools, and
+// the session-start hook from drifting into three different answers for the
+// same memory.
+func (m Memory) Title() string {
+	if m.Layer == LayerEffectiveness && m.Persona != "" {
+		return m.Persona + " effectiveness in " + m.Domain
+	}
+	if i := strings.IndexByte(m.Body, '\n'); i >= 0 {
+		return m.Body[:i]
+	}
+	return m.Body
 }

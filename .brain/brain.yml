@@ -1,0 +1,52 @@
+# brAIn configuration
+#
+# Every setting below is shown at its built-in default and commented out.
+# Uncomment a line to override it. Deleting this file is safe — brAIn runs
+# on the defaults with no config at all.
+#
+# Precedence, lowest to highest: built-in defaults, this file, environment
+# variables. Run "brain config" to see where each value is coming from.
+
+# Storage backend. Only "markdown" is available today; "pg" is planned.
+# Override with $BRAIN_STORAGE.
+# storage: markdown
+
+# PostgreSQL connection, used only when storage is "pg".
+# Override with $BRAIN_DATABASE_URL.
+# database:
+#   url: postgres://brain:secret@localhost:5432/brain_dev
+
+# Embedding model for semantic recall, used only when storage is "pg".
+# Providers: openai, anthropic, ollama.
+# Override with $BRAIN_EMBEDDING_PROVIDER and $BRAIN_EMBEDDING_MODEL.
+# embeddings:
+#   provider: openai
+#   model: text-embedding-3-small
+
+# Trust ladder: clean outcomes needed to climb each rung. The counter resets
+# to zero at every promotion, so these are per-level, not cumulative.
+#
+# These gate the edges BETWEEN levels, not the levels themselves. Raising a
+# threshold does not demote a domain that is already past it — a domain at
+# auto_ship stays there no matter what you set promote_to_notify to. Use
+# "brain trust override" to move a domain down deliberately.
+# trust:
+#   promote_to_notify: 10
+#   promote_to_auto_ship: 30
+#   promote_to_full_auto: 100
+#   # Total to reach full_auto: 140
+
+# How long a fact stays fresh. Stamped onto each fact when it is written,
+# so changing this affects new facts only — facts already on disk keep the
+# expiry they were created with.
+# facts:
+#   stale_after_days: 30
+
+# Clean-outcome streak at which a lesson retires. A lesson can override
+# this with its own retire_after frontmatter field.
+#
+# Retirement is permanent. Raising this does nothing for lessons the old,
+# lower value already retired. Lowering it can retire several lessons at once
+# on the next clean outcome.
+# lessons:
+#   retire_after_streak: 20

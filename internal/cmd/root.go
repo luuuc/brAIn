@@ -220,25 +220,28 @@ func registerSubcommands(root *cobra.Command) {
 	root.AddCommand(versionCmd())
 	root.AddCommand(initCmd())
 	root.AddCommand(configCmd())
+	root.AddCommand(hooksCmd())
 }
 
 // runsWithoutBrainDir reports whether cmd (or any ancestor) must work when
 // no .brain/ directory exists yet. Walks the parent chain so "brain help
 // remember" and "brain completion bash" are both recognized.
 //
-// Two kinds of command qualify: cobra's discovery commands plus brain
-// version, which have to work on a fresh install; and init, which creates
-// the directory the others require.
+// Three kinds of command qualify: cobra's discovery commands plus brain
+// version, which have to work on a fresh install; init, which creates the
+// directory the others require; and hooks, which runs in whatever project
+// an editor was opened in, most of which have no .brain/ at all.
 //
 // Contract: the names below are reserved. A command listed here skips engine
 // setup entirely, so it must never call engineFrom, trustEngineFrom, or
 // configFrom expecting a loaded value — all three return nil or defaults and
 // the first two will nil-deref. init obeys this by touching only the
-// filesystem.
+// filesystem; hooks obeys it by building its own engine and discarding
+// every error (see sessionStartRecall).
 func runsWithoutBrainDir(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "help", "version", "completion", "init":
+		case "help", "version", "completion", "init", "hooks":
 			return true
 		}
 	}
