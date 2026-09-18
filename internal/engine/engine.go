@@ -21,11 +21,6 @@ type RecallOptions struct {
 	Layer          *memory.Layer // filter to a specific layer (nil = all)
 	Limit          int           // max results; 0 means no limit
 	IncludeRetired bool          // include retired lessons (default false)
-
-	// UseEffectiveness, when true and Domain is set, makes Recall load
-	// the domain's effectiveness memories and rank memories with higher
-	// persona acceptance rates above lower ones within the same layer.
-	UseEffectiveness bool
 }
 
 // RememberResult is the return value of Remember.
@@ -125,6 +120,16 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 		return RememberResult{}, errors.New("engine: remember: created must not be zero")
 	}
 
+	// A persona only earns its keep if it matches the slug Track writes,
+	// because that is the key effectiveness scores are looked up by
+	// (ranking.go). An unvalidated persona would be accepted, stored, and
+	// then silently never score — the quiet failure this pitch exists to
+	// remove, reintroduced one layer down.
+	if m.Persona != "" && !isSafeSlug(m.Persona) {
+		return RememberResult{}, fmt.Errorf(
+			"%w: persona %q must be lower-kebab-case (e.g. kent-beck)", ErrInvalidArgs, m.Persona)
+	}
+
 	if m.Layer == "" {
 		m.Layer = ClassifyLayer(m.Body)
 	}
@@ -141,6 +146,20 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 		m.StaleAfter = &stale
 	}
 
+	// A supersedes target that does not resolve is rejected before anything
+	// is written. The alternative, which this replaces, wrote the new memory
+	// and attached a warning: the superseded decision stayed live and the new
+	// one claimed to have replaced it, leaving two active decisions that
+	// contradict each other and a warning on stdout as the only evidence.
+	// A typo'd path is the likely cause, and a typo should not cost a
+	// contradiction.
+	if m.Supersedes != "" {
+		if _, err := e.store.Read(ctx, m.Supersedes); err != nil {
+			return RememberResult{}, fmt.Errorf(
+				"%w: supersedes %q: %w", ErrInvalidArgs, m.Supersedes, err)
+		}
+	}
+
 	path, err := e.store.Write(ctx, m)
 	if err != nil {
 		return RememberResult{}, fmt.Errorf("engine: remember: %w", err)
@@ -148,6 +167,10 @@ func (e *Engine) Remember(ctx context.Context, m memory.Memory) (RememberResult,
 
 	var warnings []string
 
+	// The target resolved a moment ago, so a failure here is a genuine
+	// write problem rather than a bad path, and the new memory is already
+	// on disk. A warning is the honest report: nothing to roll back to
+	// without transactions the markdown store does not have.
 	if m.Supersedes != "" {
 		if err := e.retire(ctx, m.Supersedes, "superseded"); err != nil {
 			warnings = append(warnings, fmt.Sprintf("could not retire superseded memory %q: %v", m.Supersedes, err))
@@ -177,8 +200,18 @@ func (e *Engine) Recall(ctx context.Context, opts RecallOptions) ([]memory.Memor
 		all = filterByQuery(all, opts.Query)
 	}
 
+	// Effectiveness ranking is the behaviour, not an option. Scores are
+	// per-domain, so there is nothing to load for a recall that names no
+	// domain — which is what the session-start hook runs, leaving its path
+	// free of this read. Where a domain has no outcomes recorded, the map
+	// comes back empty and ranking is unchanged.
+	//
+	// There is deliberately no flag. Pitch 01-06 settled that effectiveness
+	// "surfaces in recall results the same way for everyone"; a switch would
+	// reopen that, and a capability nothing can switch on is what this
+	// replaced.
 	var scores map[string]float64
-	if opts.UseEffectiveness && opts.Domain != "" {
+	if opts.Domain != "" {
 		scores, err = e.loadEffectivenessScores(ctx, opts.Domain)
 		if err != nil {
 			return nil, fmt.Errorf("engine: recall: %w", err)
